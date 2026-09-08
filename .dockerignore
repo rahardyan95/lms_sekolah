@@ -1,0 +1,8 @@
+vendor
+node_modules
+client/node_modules
+client/dist
+.env
+storage/*.key
+storage/logs/*
+.phpunit.result.cache

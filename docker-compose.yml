@@ -1,0 +1,120 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: lms_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-lms_sekolah}
+      POSTGRES_USER: ${DB_USERNAME:-lms}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-lms} -d ${DB_DATABASE:-lms_sekolah}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lms-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: lms_redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - lms-net
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.12
+    container_name: lms_meili
+    restart: unless-stopped
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-meiliMasterKey123}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "7700:7700"
+    volumes:
+      - meilidata:/meili_data
+    networks:
+      - lms-net
+
+  mailpit:
+    image: axllent/mailpit:v1.21
+    container_name: lms_mailpit
+    restart: unless-stopped
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+    networks:
+      - lms-net
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: lms_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MAIL_HOST: mailpit
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - /var/www/html/node_modules
+      - /var/www/html/client/node_modules
+      - /var/www/html/client/dist
+    command: sh -c "php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"
+    networks:
+      - lms-net
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: dev
+    container_name: lms_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_URL: http://localhost:8000/api/v1
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+      - /app/dist
+    networks:
+      - lms-net
+
+volumes:
+  pgdata:
+  redisdata:
+  meilidata:
+
+networks:
+  lms-net:
+    driver: bridge
