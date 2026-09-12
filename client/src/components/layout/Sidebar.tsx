@@ -12,6 +12,7 @@ import {
   UserPlus,
   GraduationCap,
   Globe,
+  Newspaper,
   Settings,
 } from 'lucide-react';
 
@@ -28,6 +29,7 @@ export type ActiveModuleView =
   | 'spmb'
   | 'academic'
   | 'cms'
+  | 'cms_admin'
   | 'settings';
 
 interface SidebarProps {
@@ -67,6 +69,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
       items: [
         { id: 'whatsapp' as ActiveModuleView, label: 'WhatsApp Gateway', icon: MessageSquare },
         { id: 'cms' as ActiveModuleView, label: 'CMS & Web Sekolah', icon: Globe },
+        { id: 'cms_admin' as ActiveModuleView, label: 'Kelola CMS & Berita', icon: Newspaper },
         { id: 'settings' as ActiveModuleView, label: 'Pengaturan Sistem', icon: Settings },
       ],
     },
@@ -80,7 +83,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
       <div className="space-y-6">
         {menuSections.map((section, idx) => (
           <div key={idx} className="space-y-1">
-            <h4 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-400 font-mono">
+            <h4 className="px-3 text-[10px] font-bold uppercase tracking-wider text-slate-500 font-mono">
               {section.title}
             </h4>
             <div className="space-y-0.5">
@@ -100,7 +103,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
                     data-testid={`sidebar-menu-${item.id}`}
                   >
                     <IconComponent
-                      className={`w-4 h-4 shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-400'}`}
+                      className={`w-4 h-4 shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-500'}`}
                     />
                     <span className="truncate">{item.label}</span>
                   </button>
@@ -112,7 +115,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
       </div>
 
       {/* Sidebar Footer info */}
-      <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-400 font-mono text-center">
+      <div className="pt-4 border-t border-slate-100 text-[11px] text-slate-500 font-mono text-center">
         SMKN 1 JAKARTA • v1.1
       </div>
     </aside>

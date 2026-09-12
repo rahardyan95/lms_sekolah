@@ -50,7 +50,9 @@ return [
     |
     */
 
-    'expiration' => null,
+    // Menit hingga token kedaluwarsa. Setel SANCTUM_TOKEN_EXPIRATION (mis. 120) di
+    // production; biarkan kosong hanya untuk development (token non-expiring).
+    'expiration' => is_numeric($exp = env('SANCTUM_TOKEN_EXPIRATION')) ? (int) $exp : null,
 
     /*
     |--------------------------------------------------------------------------

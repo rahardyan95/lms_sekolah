@@ -1,0 +1,171 @@
+.landing-page {
+  --landing-ink: #17324d;
+  --landing-teal: #0f766e;
+  --landing-mint: #dff6ef;
+  --landing-cream: #fff8e8;
+  --landing-yellow: #f6c453;
+  --landing-coral: #ef6b5b;
+  /* Varian coral untuk PERMUKAAN berteks putih: #ef6b5b hanya 3.03:1 dan
+     gagal WCAG AA (butuh 4.5:1); #c0392b memberi 5.44:1. */
+  --landing-coral-strong: #c0392b;
+  background: #fffdf8;
+  color: var(--landing-ink);
+}
+
+.landing-page .landing-anchor {
+  scroll-margin-top: 6rem;
+}
+
+.landing-page .landing-hero-photo {
+  animation: landing-photo-arrive 700ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.landing-page .landing-reveal {
+  animation: landing-reveal 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+
+.landing-page .landing-reveal-delay-1 {
+  animation-delay: 100ms;
+}
+
+.landing-page .landing-reveal-delay-2 {
+  animation-delay: 180ms;
+}
+
+.landing-page .landing-reveal-delay-3 {
+  animation-delay: 260ms;
+}
+
+.landing-page .cartoon-students {
+  display: block;
+  width: min(100%, 420px);
+  height: auto;
+  overflow: visible;
+}
+
+.landing-page .cartoon-student-center {
+  animation: landing-student-float 4.8s ease-in-out infinite;
+  transform-origin: 80px 150px;
+}
+
+.landing-page .cartoon-student-front {
+  animation: landing-student-float 5.4s 180ms ease-in-out infinite;
+  transform-origin: 70px 160px;
+}
+
+.landing-page .cartoon-student-back {
+  animation: landing-student-float 5.1s 320ms ease-in-out infinite;
+  transform-origin: 90px 160px;
+}
+
+.landing-page .cartoon-paper {
+  animation: landing-paper-hover 3.8s ease-in-out infinite;
+  transform-origin: 62px 30px;
+}
+
+.landing-page .landing-photo-frame {
+  position: relative;
+  isolation: isolate;
+}
+
+.landing-page .landing-photo-frame::after {
+  position: absolute;
+  inset: 1rem -1rem -1rem 1rem;
+  z-index: -1;
+  border: 1px solid rgba(15, 118, 110, 0.25);
+  border-radius: 2rem;
+  content: '';
+}
+
+.landing-page .landing-focus:focus-visible,
+.landing-page a:focus-visible,
+.landing-page button:focus-visible {
+  outline: 3px solid var(--landing-yellow);
+  outline-offset: 4px;
+}
+
+.landing-page .landing-skip-link {
+  position: fixed;
+  top: 1rem;
+  left: 1rem;
+  z-index: 100;
+  transform: translateY(-180%);
+  border-radius: 0.75rem;
+  background: var(--landing-ink);
+  color: #fff;
+  padding: 0.75rem 1rem;
+  font-size: 0.875rem;
+  font-weight: 700;
+  transition: transform 150ms ease-out;
+}
+
+.landing-page .landing-skip-link:focus {
+  transform: translateY(0);
+}
+
+@keyframes landing-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(1.25rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-photo-arrive {
+  from {
+    opacity: 0;
+    filter: saturate(0.7) blur(5px);
+    transform: scale(1.035) translateY(0.75rem);
+  }
+  to {
+    opacity: 1;
+    filter: saturate(1) blur(0);
+    transform: scale(1) translateY(0);
+  }
+}
+
+@keyframes landing-student-float {
+  0%, 100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-0.45rem) rotate(-1deg);
+  }
+}
+
+@keyframes landing-paper-hover {
+  0%, 100% {
+    transform: translateY(0) rotate(-7deg);
+  }
+  50% {
+    transform: translateY(-0.4rem) rotate(-4deg);
+  }
+}
+
+@media (max-width: 767px) {
+  .landing-page .landing-photo-frame::after {
+    inset: 0.75rem -0.5rem -0.75rem 0.5rem;
+    border-radius: 1.5rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .landing-page *,
+  .landing-page *::before,
+  .landing-page *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .landing-page .landing-reveal,
+  .landing-page .landing-photo-arrive {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}

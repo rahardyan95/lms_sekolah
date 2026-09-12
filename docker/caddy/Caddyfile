@@ -1,0 +1,33 @@
+# Caddy reverse proxy — TLS otomatis (ACME) + HSTS + proxy ke backend/frontend.
+# Prod VPS: set APP_URL=https://api.sekolah.sch.id FRONTEND_URL=https://sekolah.sch.id di .env,
+# lalu: docker compose -f docker-compose.yml up --build -d
+# Dev lokal: Caddy tetap jalan tapi fallback http://:80 (tanpa domain https).
+{
+	auto_https off
+}
+
+:80 {
+	# Frontend SPA
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	handle /up {
+		reverse_proxy backend:8000
+	}
+	handle {
+		reverse_proxy frontend:80
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}

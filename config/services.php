@@ -28,11 +28,24 @@ return [
         'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
     ],
 
+    // DEC-001 (locked 11 Sep 2026 untuk go-live): primary Fonnte, fallback Wablas.
+    // Custom API out untuk rilis pertama. Default 'log' dev-safe; production
+    // wajib provider nyata (dienforce app:readiness + ProductionReadinessService).
     'whatsapp' => [
         'provider' => env('WA_PROVIDER', 'log'),
         'endpoint' => env('WA_ENDPOINT'),
         'key' => env('WA_API_KEY'),
         'sender' => env('WA_SENDER'),
+        // Penyedia cadangan + kredensialnya (bila kosong → pakai kredensial utama).
+        'fallback_provider' => env('WA_FALLBACK_PROVIDER'),
+        'fallback_endpoint' => env('WA_FALLBACK_ENDPOINT'),
+        'fallback_key' => env('WA_FALLBACK_API_KEY'),
+    ],
+
+    'backup' => [
+        // Offsite S3-compatible untuk RPO penuh (lihat scripts/backup.sh + docs/RUNBOOK.md).
+        'bucket' => env('BACKUP_S3_BUCKET'),
+        'endpoint' => env('BACKUP_S3_ENDPOINT'),
     ],
 
     'meilisearch' => [

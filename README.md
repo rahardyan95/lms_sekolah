@@ -1,59 +1,59 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# SIAKAD & LMS Sekolah Terpadu
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+Sistem Informasi Akademik & LMS untuk sekolah (SMK) — backend **Laravel 13** (REST API) + frontend **React 19 / Vite / Tailwind v4**, berjalan penuh di **Docker Compose** (Postgres, Redis, Meilisearch, Mailpit, queue, scheduler).
 
-## About Laravel
+> Status: **fondasi produksi** — auth/RBAC, master siswa, dan presensi (QR + notifikasi WhatsApp) aktif; modul domain lain menyusul sesuai roadmap di `docs/PRD.md`. Lihat `docs/DEPLOY.md` dan `docs/AUDIT_FULLSTACK_UX_MOBILE_QA_OOP.md`.
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## Struktur
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+```
+app/            Backend Laravel (Controllers/Api/V1, Services, Contracts, Policies, Models, Enums)
+client/         Frontend React SPA (src/components/modules/*, services, lib)
+docs/           BRD, PRD, FRD, DEPLOY, laporan audit
+client.md       Kebutuhan produk 13 modul
+database/       Migrasi & seeder (RolePermissionSeeder — akun demo tidak dibuat di production)
+routes/api.php  REST API v1 (auth:sanctum + rate limit + policy)
+skill/          Referensi skill (UI/UX, security, QA) untuk agent — bukan kode runtime
+```
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## Menjalankan (dev)
 
-## Learning Laravel
+```bash
+cp .env.example .env
+docker compose up --build -d          # otomatis gabung docker-compose.override.yml (vite :5173)
+docker compose exec backend php artisan migrate:fresh --seed --force
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework. You can also check out [Laravel Learn](https://laravel.com/learn), where you will be guided through building a modern Laravel application.
+- Frontend dev: http://localhost:5173 · API: http://localhost:8000/up · Mailpit UI: http://localhost:8025
+- Kredensial demo dev (password uniform `SEED_DEMO_PASSWORD`, default `password123` — hanya di luar production):
+  `superadmin|admin|guru|bendahara|operator@sekolah.sch.id` (tab Staff),
+  NISN `0071829384` (tab Siswa),
+  NISN `0071829384` + OTP WhatsApp (tab Orang Tua; DEV: pakai `debug_code`),
+  `SPMB-2026-0089` (tab SPMB).
+- Halaman login punya panel **Akun Demo (DEV)**: satu klik per peran (8 tombol) yang mengisi kredensial
+  dan langsung masuk. Dirender hanya saat Vite DEV; sandi diambil dari `VITE_DEMO_PASSWORD`
+  (default `password123`, harus sama dengan `SEED_DEMO_PASSWORD`).
+- Landing/CMS publik tetap terbuka tanpa login; dashboard & semua menu wajib login (session restore via `GET /api/v1/me`).
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
+## Verifikasi sebelum rilis
 
-## Laravel Sponsors
+```bash
+docker compose ps                                  # semua healthy
+docker compose exec backend php artisan test       # 182 passed (hermetic, sqlite :memory:)
+docker compose exec -T frontend ./node_modules/.bin/tsc -b
+docker compose exec -T frontend npm run build
+cd client && npx playwright test                   # 14 passed (login 8 role, modul, routing, CSRF, alur tulis)
+```
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the [Laravel Partners program](https://partners.laravel.com).
+## Produksi (ringkas — detail di `docs/DEPLOY.md`)
 
-### Premium Partners
+1. Di server: `cp .env.prod.example .env` → isi `APP_KEY`, `DB_PASSWORD`, `REDIS_PASSWORD`, `MEILI_MASTER_KEY`, `SANCTUM_TOKEN_EXPIRATION`, `TRUSTED_PROXIES`, SMTP, domain `APP_URL/FRONTEND_URL/VITE_API_URL/CORS_*`.
+2. `docker compose -f docker-compose.yml up --build -d` (base compose = aman produksi: port infra tidak dipublish, Redis requirepass aktif saat `REDIS_PASSWORD` diisi).
+3. TLS di reverse proxy depan port 8080/8000 + backup harian `pg_dump` (target RPO ≤1 jam / RTO ≤4 jam).
 
-- **[Vehikl](https://vehikl.com)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Curotec](https://www.curotec.com/services/technologies/laravel)**
-- **[DevSquad](https://devsquad.com/hire-laravel-developers)**
-- **[Redberry](https://redberry.international/laravel-development)**
-- **[Active Logic](https://activelogic.com)**
+## Dokumentasi
 
-## Contributing
-
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
-
-## Code of Conduct
-
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
-
-## Security Vulnerabilities
-
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
-
-## License
-
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+- `docs/BRD.md`, `docs/PRD.md`, `docs/FRD.md` — kebutuhan & traceability per modul
+- Keputusan go-live terkunci 11 Sep 2026: WA primary Fonnte + fallback Wablas, rekonsiliasi manual + nomor referensi, nilai guru-submit/wali-publish — lihat `docs/PRD.md` §16
+- `docs/DEPLOY.md` — operasional dev/VPS + checklist verifikasi rilis
+- `docs/AUDIT_FULLSTACK_UX_MOBILE_QA_OOP.md` — audit evidence-based multi-perspektif

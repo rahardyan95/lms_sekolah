@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\RoleEnum;
 use App\Models\ClassRoom;
+use App\Models\Invoice;
 use App\Models\Student;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -121,5 +122,43 @@ class SecurityTest extends TestCase
 
         $this->actingAs($siswa)->getJson('/api/v1/attendance/reports?from=2026-01-01&to=2026-12-31')
             ->assertForbidden();
+    }
+
+    public function test_method_switching_and_unknown_route_do_not_leak(): void
+    {
+        $siswa = $this->makeUser(RoleEnum::Siswa->value);
+
+        // Method switching: DELETE pada endpoint GET-only → 405, bukan data.
+        $this->actingAs($siswa)->deleteJson('/api/v1/students')
+            ->assertStatus(405);
+
+        // PUT pada koleksi tanpa ID → 405, bukan aksi massal.
+        $this->actingAs($siswa)->putJson('/api/v1/students', ['name' => 'X'])
+            ->assertStatus(405);
+    }
+
+    public function test_operator_cannot_pay_invoice_or_read_other_parent_child(): void
+    {
+        $operator = $this->makeUser(RoleEnum::Operator->value);
+        $student = Student::create(['nisn' => '9501', 'name' => 'E']);
+        $invoice = Invoice::create([
+            'student_id' => $student->id, 'title' => 'SPP',
+            'amount' => 100000, 'paid_amount' => 0, 'status' => 'unpaid',
+        ]);
+
+        // Operator bukan bendahara → bayar ditolak.
+        $this->actingAs($operator)->postJson("/api/v1/finance/invoices/{$invoice->id}/payments", [
+            'amount' => 50000, 'method' => 'tunai', 'reference' => 'OP-001',
+        ])->assertForbidden();
+
+        // Operator bukan guardian → portal orang tua ditolak.
+        $this->actingAs($operator)->getJson("/api/v1/parent/children/{$student->id}/invoices")
+            ->assertForbidden();
+    }
+
+    public function test_guest_cannot_use_signed_download_without_signature(): void
+    {
+        $this->getJson('/api/v1/lms/materials/01hzzzzzzzzzzzzzzzzzzzzzz/download')
+            ->assertUnauthorized();
     }
 }

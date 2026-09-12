@@ -3,20 +3,25 @@
 namespace Database\Seeders;
 
 use App\Enums\RoleEnum;
-use App\Models\User;
+use App\Services\DemoAccountService;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Hash;
 use Spatie\Permission\Models\Permission;
 use Spatie\Permission\Models\Role;
+use Spatie\Permission\PermissionRegistrar;
 
 class RolePermissionSeeder extends Seeder
 {
     public function run(): void
     {
+        // Cache permission Spatie (redis) harus dibuang dulu agar permission
+        // baru langsung terbaca oleh syncPermissions di bawah.
+        app(PermissionRegistrar::class)->forgetCachedPermissions();
+
         $permissions = [
             'students.read', 'students.manage',
             'attendance.scan', 'attendance.reports',
             'grades.manage', 'grades.publish',
+            'cbt.manage', 'cbt.attempt',
             'finance.payments.record', 'finance.receipts.issue', 'finance.reports.read',
             'spmb.review', 'spmb.accept',
             'cms.manage', 'broadcast.send', 'settings.manage',
@@ -29,10 +34,10 @@ class RolePermissionSeeder extends Seeder
         $matrix = [
             RoleEnum::SuperAdmin->value => $permissions,
             RoleEnum::AdminTu->value => ['students.read', 'students.manage', 'attendance.reports', 'spmb.review', 'spmb.accept', 'cms.manage', 'broadcast.send'],
-            RoleEnum::Guru->value => ['students.read', 'attendance.scan', 'attendance.reports', 'grades.manage', 'grades.publish'],
+            RoleEnum::Guru->value => ['students.read', 'attendance.scan', 'attendance.reports', 'grades.manage', 'grades.publish', 'cbt.manage'],
             RoleEnum::Bendahara->value => ['students.read', 'finance.payments.record', 'finance.receipts.issue', 'finance.reports.read'],
             RoleEnum::Operator->value => ['students.read', 'attendance.scan', 'attendance.reports', 'spmb.review'],
-            RoleEnum::Siswa->value => ['students.read'],
+            RoleEnum::Siswa->value => ['students.read', 'cbt.attempt'],
             RoleEnum::OrangTua->value => ['students.read'],
             RoleEnum::CalonSiswa->value => ['students.read'],
         ];
@@ -41,20 +46,14 @@ class RolePermissionSeeder extends Seeder
             Role::firstOrCreate(['name' => $role, 'guard_name' => 'web'])->syncPermissions($perms);
         }
 
-        $accounts = [
-            ['Super Admin', 'superadmin@sekolah.sch.id', 'super_admin', RoleEnum::SuperAdmin],
-            ['Admin TU', 'admin@sekolah.sch.id', 'admin_tu', RoleEnum::AdminTu],
-            ['Guru', 'guru@sekolah.sch.id', 'guru', RoleEnum::Guru],
-            ['Bendahara', 'bendahara@sekolah.sch.id', 'bendahara', RoleEnum::Bendahara],
-            ['Operator', 'operator@sekolah.sch.id', 'operator', RoleEnum::Operator],
-        ];
+        // Akun demo (8 role) dibuat via DemoAccountService — TIDAK di production.
+        // Password uniform dari SEED_DEMO_PASSWORD (default hanya untuk dev).
+        $report = app(DemoAccountService::class)->seedAll();
 
-        foreach ($accounts as [$name, $email, $identifier, $role]) {
-            $user = User::firstOrCreate(
-                ['email' => $email],
-                ['name' => $name, 'identifier' => $identifier, 'password' => Hash::make('password123'), 'status' => 'active']
-            );
-            $user->assignRole($role->value);
+        if ($report->skippedProduction) {
+            $this->command?->warn('RolePermissionSeeder: melewati pembuatan akun demo (APP_ENV=production).');
+        } else {
+            $this->command?->info('RolePermissionSeeder: '.$report->count().' akun demo siap.');
         }
     }
 }

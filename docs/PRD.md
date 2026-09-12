@@ -369,9 +369,9 @@ Risiko bisnis utama, owner, dan mitigasinya berada di [`BRD.md`](./BRD.md) bagia
 
 | ID | Decision | Default | Owner | Status |
 |---|---|---|---|---|
-| DEC-001 | WhatsApp primary/fallback | Fonnte/Wablas adapter | Super Admin | TBD |
-| DEC-002 | Payment reconciliation | Manual reference verification | Bendahara | TBD |
-| DEC-003 | Grade publication authority | Teacher submit, wali/admin publish | Wakil Kurikulum | TBD |
+| DEC-001 | WhatsApp primary/fallback | Primary Fonnte, fallback Wablas (`WA_PROVIDER`/`WA_ENDPOINT` + `WA_API_KEY`) | Super Admin | Decided 11 Sep 2026 |
+| DEC-002 | Payment reconciliation | Manual verification + reference number (tanpa payment gateway di rilis pertama) | Bendahara | Decided 11 Sep 2026 |
+| DEC-003 | Grade publication authority | Guru submit, wali kelas/admin publish | Wakil Kurikulum | Decided 11 Sep 2026 |
 | DEC-004 | Data retention/alumni | School/legal policy | Kepala Sekolah | TBD |
 | DEC-005 | PWA offline boundary | Read-only static shell | IT/Product | TBD |
 | DEC-006 | Legacy import template | Versioned CSV/XLSX | Admin/TU | TBD |

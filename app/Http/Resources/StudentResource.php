@@ -15,6 +15,7 @@ class StudentResource extends JsonResource
             'name' => $this->name,
             'gender' => $this->gender,
             'class' => $this->whenLoaded('classRoom', fn () => $this->classRoom?->name),
+            'major' => $this->whenLoaded('classRoom', fn () => $this->classRoom?->major),
             'status' => $this->status,
         ];
     }

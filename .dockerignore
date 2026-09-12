@@ -1,8 +1,29 @@
+# ---- base deps (reproducible, cached) ----
+.git
+.gitignore
+.env
+.env.*.local
 vendor
 node_modules
 client/node_modules
 client/dist
-.env
-storage/*.key
+public/build
+public/hot
 storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*
+storage/*.key
 .phpunit.result.cache
+coverage
+.DS_Store
+*.log
+npm-debug.log*
+.vscode
+.idea
+skill/
+docs/
+tests/
+# Binary FrankenPHP hasil `octane:install` di root project (tidak dipakai —
+# image prod memakai binary dari base dunglas/frankenphp).
+frankenphp

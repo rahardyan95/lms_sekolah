@@ -1,4 +1,30 @@
+import QRCode from 'qrcode';
+
 import { AuditLog } from '../types';
+
+/** Avatar inisial (data-URI SVG, offline) — dipakai bila user tidak punya foto. */
+export function initialsAvatar(name: string): string {
+  const initials = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? '')
+    .join('') || '?';
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80"><rect width="80" height="80" rx="40" fill="#0f766e"/><text x="50%" y="50%" dy="0.35em" text-anchor="middle" font-family="sans-serif" font-size="32" fill="#ffffff">${initials}</text></svg>`;
+
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+}
+
+/** Cover buku deterministik lokal (inisial + hue stabil) — tanpa hotlink eksternal. */
+export function libraryCover(title: string, seed: string): string {
+  let h = 0;
+  for (const ch of `${seed}:${title}`) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  const initials = title.split(/\s+/).slice(0, 2).map((w) => w[0] ?? '').join('').toUpperCase() || 'BK';
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' width='300' height='400'><rect width='300' height='400' fill='hsl(${h},45%,26%)'/><rect x='16' y='16' width='268' height='368' fill='none' stroke='rgba(255,255,255,0.35)' stroke-width='3'/><text x='150' y='190' font-family='sans-serif' font-size='72' font-weight='bold' fill='rgba(255,255,255,0.92)' text-anchor='middle'>${initials}</text><text x='150' y='340' font-family='sans-serif' font-size='20' fill='rgba(255,255,255,0.75)' text-anchor='middle'>PERPUSTAKAAN</text></svg>`;
+
+  return `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
 
 export function formatRupiah(amount: number): string {
   return new Intl.NumberFormat('id-ID', {
@@ -7,6 +33,17 @@ export function formatRupiah(amount: number): string {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   }).format(amount);
+}
+
+/**
+ * Tanggal hari ini di zona perangkat, format YYYY-MM-DD.
+ * Dipakai untuk presensi hari berjalan — bukan tanggal filter tampilan
+ * (yang bisa menunjuk hari lain dan ditolak server).
+ */
+export function todayIso(): string {
+  const now = new Date();
+  const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 10);
 }
 
 export function formatDate(dateString: string): string {
@@ -103,68 +140,25 @@ export function terbilang(nominal: number): string {
   return result ? `${result} Rupiah` : 'Nol Rupiah';
 }
 
-// Deterministic Vector SVG QR Code generator (High visual precision with standard 3 finder patterns)
-export function generateSvgQrMatrix(content: string, size = 180, foreground = '#0f172a'): string {
-  const gridSize = 21;
-  const cellSize = size / gridSize;
-  
-  // Deterministic pseudo-random seed from string
-  let hash = 0;
-  for (let i = 0; i < content.length; i++) {
-    hash = (hash << 5) - hash + content.charCodeAt(i);
-    hash |= 0;
-  }
+/**
+ * Render konten sebagai QR code SVG yang benar-benar bisa dipindai
+ * (encoding + error correction via `qrcode`, tanpa jaringan).
+ * Async karena encoder membangun matriks modul secara asinkron.
+ */
+export async function generateSvgQrMatrix(
+  content: string,
+  size = 180,
+  foreground = '#0f172a'
+): Promise<string> {
+  const svg = await QRCode.toString(content, {
+    type: 'svg',
+    margin: 0,
+    width: size,
+    color: { dark: foreground, light: '#ffffff' },
+  });
 
-  const matrix: boolean[][] = Array.from({ length: gridSize }, () => Array(gridSize).fill(false));
-
-  // Helper: Draw Finder Pattern at (row, col)
-  function drawFinderPattern(r: number, c: number) {
-    for (let i = 0; i < 7; i++) {
-      for (let j = 0; j < 7; j++) {
-        const isOuter = i === 0 || i === 6 || j === 0 || j === 6;
-        const isInner = i >= 2 && i <= 4 && j >= 2 && j <= 4;
-        matrix[r + i][c + j] = isOuter || isInner;
-      }
-    }
-  }
-
-  // Draw 3 corner finder patterns
-  drawFinderPattern(0, 0);
-  drawFinderPattern(0, gridSize - 7);
-  drawFinderPattern(gridSize - 7, 0);
-
-  // Timing patterns
-  for (let i = 8; i < gridSize - 8; i++) {
-    matrix[6][i] = i % 2 === 0;
-    matrix[i][6] = i % 2 === 0;
-  }
-
-  // Populate data cells deterministically
-  let currentHash = Math.abs(hash);
-  for (let r = 0; r < gridSize; r++) {
-    for (let c = 0; c < gridSize; c++) {
-      // Don't overwrite finder patterns
-      const inTopLeft = r < 8 && c < 8;
-      const inTopRight = r < 8 && c >= gridSize - 8;
-      const inBottomLeft = r >= gridSize - 8 && c < 8;
-      if (inTopLeft || inTopRight || inBottomLeft) continue;
-
-      currentHash = (currentHash * 9301 + 49297) % 233280;
-      matrix[r][c] = currentHash % 2 === 0;
-    }
-  }
-
-  // Build SVG rects
-  let rects = '';
-  for (let r = 0; r < gridSize; r++) {
-    for (let c = 0; c < gridSize; c++) {
-      if (matrix[r][c]) {
-        rects += `<rect x="${(c * cellSize).toFixed(2)}" y="${(r * cellSize).toFixed(2)}" width="${cellSize.toFixed(2)}" height="${cellSize.toFixed(2)}" fill="${foreground}" rx="1"/>`;
-      }
-    }
-  }
-
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" class="w-full h-full">${rects}</svg>`;
+  // Kontainer pemanggil yang menentukan ukuran; SVG cukup mengisi ruang.
+  return svg.replace('<svg ', '<svg class="w-full h-full" ');
 }
 
 // In-memory Audit Log Store for Security Analyst view

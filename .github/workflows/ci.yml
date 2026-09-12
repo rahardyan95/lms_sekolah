@@ -1,0 +1,235 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Deploy ke VPS setelah CI hijau?'
+        type: choice
+        options: ['no', 'yes']
+        default: 'no'
+  schedule:
+    - cron: '0 3 * * 1'
+
+jobs:
+  backend:
+    name: Backend (pint + tests + audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: pdo_sqlite, sqlite3, mbstring, bcmath, intl
+          coverage: none
+
+      - name: Get Composer cache
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: composer-${{ hashFiles('composer.lock') }}
+          restore-keys: composer-
+
+      - name: Install dependencies
+        run: composer install --no-interaction --prefer-dist --no-progress
+
+      - name: Pint (code style)
+        run: ./vendor/bin/pint --test
+
+      - name: PHPUnit (hermetic, sqlite :memory:)
+        run: php artisan test
+
+      - name: Composer audit
+        run: composer audit --no-interaction
+
+  frontend:
+    name: Frontend (lint + tsc + build + audit)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Oxlint
+        run: npx oxlint
+
+      - name: TypeScript check
+        run: npx tsc -b
+
+      - name: Unit tests (vitest)
+        run: npm test
+
+      - name: Vite build
+        run: npm run build
+
+      - name: npm audit
+        run: npm audit --audit-level=high
+
+  images:
+    name: Build images (regression Dockerfile)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend target prod (FrankenPHP + Octane)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Build backend target cli (queue/scheduler/dev)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: cli
+          push: false
+          cache-from: type=gha
+
+      - name: Build frontend target prod (fail-fast VITE_API_URL)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client
+          target: prod
+          push: false
+          build-args: |
+            VITE_API_URL=https://api.example.test/api/v1
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    name: Push images ke GHCR (tag rilis v*)
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push backend prod
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: prod
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-backend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}-backend:latest
+
+      - name: Build & push frontend prod
+        uses: docker/build-push-action@v6
+        with:
+          context: ./client
+          target: prod
+          push: true
+          build-args: |
+            VITE_API_URL=${{ vars.VITE_API_URL }}
+          tags: |
+            ghcr.io/${{ github.repository }}-frontend:${{ github.ref_name }}
+            ghcr.io/${{ github.repository }}-frontend:latest
+
+  deploy:
+    name: Deploy VPS (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.deploy == 'yes'
+    needs: [backend, frontend, images]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH (git pull + scripts/deploy.sh)
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          script: |
+            cd ${{ secrets.DEPLOY_PATH }}
+            git pull --ff-only
+            ./scripts/deploy.sh
+
+  load:
+    name: Load test k6 (manual / scheduled)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: k6 smoke
+        run: k6 run client/k6/smoke.js
+        env:
+          K6_BASE_URL: ${{ secrets.K6_BASE_URL }}
+          K6_DEMO_PASSWORD: ${{ secrets.K6_DEMO_PASSWORD }}
+
+      - name: k6 probe 10VU
+        run: k6 run client/k6/probe10.js
+        env:
+          K6_BASE_URL: ${{ secrets.K6_BASE_URL }}
+          K6_DEMO_PASSWORD: ${{ secrets.K6_DEMO_PASSWORD }}
+
+  e2e:
+    name: E2E Playwright + axe (manual / scheduled)
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps chromium
+
+      - name: Playwright + axe
+        run: npx playwright test
+        env:
+          E2E_BASE_URL: ${{ secrets.E2E_BASE_URL }}
+          E2E_API_URL: ${{ secrets.E2E_API_URL }}

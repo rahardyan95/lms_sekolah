@@ -27,6 +27,12 @@ export const TopDevBar: React.FC<TopDevBarProps> = ({
   onOpenSecurityAudit,
   auditCount,
 }) => {
+  // Tool developer: hanya boleh ada di development. Di production komponen ini
+  // tidak merender apa pun sehingga role-switcher tidak pernah bocor ke publik.
+  if (import.meta.env.PROD) {
+    return null;
+  }
+
   const rolesList: { role: UserRole; label: string; desc: string }[] = [
     { role: 'super_admin', label: 'Super Admin', desc: 'Kontrol Penuh & Konfigurasi' },
     { role: 'admin_tu', label: 'Admin / TU', desc: 'Master Data & Akademik' },
@@ -50,7 +56,7 @@ export const TopDevBar: React.FC<TopDevBarProps> = ({
           <div className="flex items-center gap-1.5 font-bold tracking-tight text-white">
             <span className="w-2 h-2 rounded-full bg-teal-400 animate-pulse" />
             <span className="text-teal-400 font-mono">SIAKAD</span>
-            <span className="text-slate-400">/</span>
+            <span className="text-slate-500">/</span>
             <span className="text-slate-200">LMS TERPADU</span>
           </div>
           <span className="hidden md:inline-block px-2 py-0.5 rounded bg-slate-800 text-slate-300 font-mono text-[10px]">
@@ -60,7 +66,7 @@ export const TopDevBar: React.FC<TopDevBarProps> = ({
 
         {/* Center: Role Switcher Buttons */}
         <div className="flex items-center gap-1 overflow-x-auto py-1 max-w-full">
-          <span className="text-[11px] text-slate-400 font-medium mr-1 hidden sm:inline">
+          <span className="text-[11px] text-slate-300 font-medium mr-1 hidden sm:inline">
             Role Akses:
           </span>
           <div className="flex items-center gap-1 bg-slate-800/80 p-1 rounded-lg border border-slate-700/80">
@@ -72,7 +78,7 @@ export const TopDevBar: React.FC<TopDevBarProps> = ({
                   onClick={() => onRoleChange(item.role)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-all whitespace-nowrap ${
                     isActive
-                      ? 'bg-teal-500 text-white shadow-xs font-bold'
+                      ? 'bg-teal-700 text-white shadow-xs font-bold'
                       : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
                   }`}
                   data-testid={`switch-role-${item.role}`}
@@ -106,7 +112,7 @@ export const TopDevBar: React.FC<TopDevBarProps> = ({
                 </>
               ) : (
                 <>
-                  <Smartphone className="w-3.5 h-3.5 text-slate-400" />
+                  <Smartphone className="w-3.5 h-3.5 text-slate-500" />
                   <span>Mode Smartphone</span>
                 </>
               )}

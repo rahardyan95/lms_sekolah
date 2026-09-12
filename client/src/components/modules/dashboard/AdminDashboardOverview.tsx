@@ -21,14 +21,22 @@ interface AdminDashboardOverviewProps {
   onNavigate: (view: ActiveModuleView) => void;
   attendanceTodayCount: number;
   totalStudents: number;
+  attendanceRate?: number | null;
+  activeCbtExams?: number | null;
+  isLoading?: boolean;
 }
 
 export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
   onNavigate,
   attendanceTodayCount,
   totalStudents,
+  attendanceRate = null,
+  activeCbtExams = null,
+  isLoading = false,
 }) => {
-  const attendanceRate = Math.round((attendanceTodayCount / totalStudents) * 100) || 94;
+  // Angka dari server; '—' saat belum termuat (tidak ada angka karangan).
+  const fmt = (value: number | null | undefined): string =>
+    isLoading || value === null || value === undefined ? '—' : String(value);
 
   const quickActions = [
     {
@@ -60,7 +68,7 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
       desc: 'Kelola pembayaran & kwitansi',
       icon: CreditCard,
       view: 'finance' as ActiveModuleView,
-      color: 'text-emerald-600',
+      color: 'text-emerald-700',
       bg: 'bg-emerald-50',
     },
     {
@@ -106,17 +114,19 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
             <span className="text-xs font-semibold text-slate-500">Siswa Aktif</span>
             <Users className="w-4 h-4 text-teal-600" />
           </div>
-          <p className="text-2xl font-black text-slate-900">{totalStudents}</p>
-          <p className="text-[10px] text-teal-700 font-semibold">Tiga Angkatan (X, XI, XII)</p>
+          <p className="text-2xl font-black text-slate-900">{fmt(totalStudents)}</p>
+          <p className="text-[10px] text-teal-700 font-semibold">Siswa Berstatus Aktif</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500">Kehadiran Hari Ini</span>
-            <CalendarCheck className="w-4 h-4 text-emerald-600" />
+            <CalendarCheck className="w-4 h-4 text-emerald-700" />
           </div>
-          <p className="text-2xl font-black text-emerald-800">{attendanceRate}%</p>
-          <p className="text-[10px] text-emerald-700 font-semibold">{attendanceTodayCount} Siswa Terpindai</p>
+          <p className="text-2xl font-black text-emerald-800">
+            {attendanceRate === null || isLoading ? '—' : `${attendanceRate}%`}
+          </p>
+          <p className="text-[10px] text-emerald-700 font-semibold">{fmt(attendanceTodayCount)} Siswa Terpindai</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
@@ -124,8 +134,8 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
             <span className="text-xs font-semibold text-slate-500">Ujian CBT Aktif</span>
             <Clock className="w-4 h-4 text-amber-600" />
           </div>
-          <p className="text-2xl font-black text-amber-800">1</p>
-          <p className="text-[10px] text-amber-700 font-semibold">PTS Pemrograman Web</p>
+          <p className="text-2xl font-black text-amber-800">{fmt(activeCbtExams)}</p>
+          <p className="text-[10px] text-amber-700 font-semibold">Ujian berstatus published</p>
         </div>
 
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-1">
@@ -133,8 +143,8 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
             <span className="text-xs font-semibold text-slate-500">SPP Terkumpul</span>
             <DollarSign className="w-4 h-4 text-teal-600" />
           </div>
-          <p className="text-2xl font-black text-slate-900">80%</p>
-          <p className="text-[10px] text-teal-700 font-semibold">Periode Semester Ganjil</p>
+          <p className="text-2xl font-black text-slate-900">—</p>
+          <p className="text-[10px] text-teal-700 font-semibold">Ringkasan SPP menyusul di modul Keuangan</p>
         </div>
       </div>
 
@@ -165,7 +175,7 @@ export const AdminDashboardOverview: React.FC<AdminDashboardOverviewProps> = ({
                     <p className="text-[11px] text-slate-500 mt-0.5">{action.desc}</p>
                   </div>
                 </div>
-                <ArrowRight className="w-4 h-4 text-slate-400 group-hover:text-teal-600 group-hover:translate-x-1 transition-all" />
+                <ArrowRight className="w-4 h-4 text-slate-500 group-hover:text-teal-600 group-hover:translate-x-1 transition-all" />
               </button>
             );
           })}

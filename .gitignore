@@ -1,32 +1,52 @@
-!.vscode/extensions.json
-*.local
-*.log
-.DS_Store
+/.phpunit.cache
+/node_modules
+/public/build
+/public/hot
+/public/storage
+/storage/*.key
+/storage/pail
+/storage/app/private
+/storage/app/backups
+/vendor
 .env
 .env.backup
 .env.production
-.idea
+.env.*.local
 .phpactor.json
 .phpunit.result.cache
+.DS_Store
+.idea
 .vscode/*
+!.vscode/extensions.json
 /.fleet
-/.idea
 /.nova
-/.phpunit.cache
-/.vscode
 /.zed
 /auth.json
+*.log
+
+# Monorepo frontend (client/)
+/client/.env
+/client/.env.*.local
 /client/dist
 /client/node_modules
-/dist-ssr
-/node_modules
-client/dist/
-client/node_modules/
-node_modules/
-npm-debug.log*
-pnpm-debug.log*
-skill/
-storage/logs/*
-vendor/
-yarn-debug.log*
-yarn-error.log*
+/client/test-results
+/client/playwright-report
+/client/blob-report
+
+# Test/QA artifacts
+/test-results
+/playwright-report
+/blob-report
+
+# Local reference material (bukan kode produk)
+/skill/
+
+# Artefak hasil load test (bukan kode produk) — skrip k6 tetap dilacak
+/client/k6/results/
+
+# Binary hasil unduhan (bukan kode produk) — hanya di root project.
+# CATATAN: jangan pakai pola "**/caddy" / "frankenphp-worker.php";
+# docker/caddy/* adalah konfigurasi TLS produksi dan
+# public/frankenphp-worker.php WAJIB ada untuk boot Octane+FrankenPHP.
+/caddy
+/frankenphp

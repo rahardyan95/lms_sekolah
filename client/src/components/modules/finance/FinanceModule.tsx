@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   StudentSppProfile,
   CashTransaction,
@@ -25,10 +25,23 @@ import {
 } from 'lucide-react';
 import { Badge } from '../../common/Badge';
 import { Modal } from '../../common/Modal';
+import { EmptyState } from '../../common/EmptyState';
 import { formatRupiah, formatDate, terbilang, addAuditLog } from '../../../utils/helpers';
+import {
+  FinanceApiService,
+  type ServerPaymentItem,
+  type ServerSummary,
+  type ServerPayment,
+  type ServerBankAccount,
+  type ServerCashTransaction,
+  type ServerCashReport,
+} from '../../../services/FinanceApiService';
+import { AcademicApiService } from '../../../services/AcademicApiService';
+import { StudentService } from '../../../services/DomainService';
+import { TokenStorage } from '../../../services/TokenStorage';
 
 interface FinanceModuleProps {
-  sppProfile: StudentSppProfile;
+  sppProfile?: StudentSppProfile;
   students: Student[];
   cashTransactions: CashTransaction[];
   schoolConfig: SchoolConfig;
@@ -42,8 +55,10 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   schoolConfig,
   onShowToast,
 }) => {
-  const [activeTab, setActiveTab] = useState<'spp_matrix' | 'buku_kas' | 'pos_biaya'>('spp_matrix');
-  const [sppProfile, setSppProfile] = useState<StudentSppProfile>(initialSpp);
+  const [activeTab, setActiveTab] = useState<
+    'spp_matrix' | 'buku_kas' | 'pos_biaya' | 'kas_bank' | 'reports'
+  >('spp_matrix');
+  const [sppProfile, setSppProfile] = useState<StudentSppProfile | null>(initialSpp ?? null);
   const [transactions, setTransactions] = useState<CashTransaction[]>(initialTransactions);
 
   // Kwitansi Modal State
@@ -65,8 +80,258 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   const [txDesc, setTxDesc] = useState('');
   const [txPic, setTxPic] = useState('Ibu Endang Sulistyo (Bendahara)');
 
+  // Server-first: ringkasan tagihan siswa demo dari API bila login bendahara.
+  const [serverSummary, setServerSummary] = useState<ServerSummary | null>(null);
+  // Identitas siswa pemilik ringkasan LIVE (dari server) — dipakai kwitansi
+  // dan refresh pasca-bayar. Tanpa ini (bundle produksi tanpa mock) panel
+  // LIVE tidak pernah tampil dan kwitansi kehilangan nama siswa.
+  const [summaryStudent, setSummaryStudent] = useState<{ id: string; name: string; nisn: string; kelas: string } | null>(null);
+  const [payingId, setPayingId] = useState<string | null>(null);
+  const [serverItems, setServerItems] = useState<ServerPaymentItem[] | null>(null);
+  const [itemsStale, setItemsStale] = useState(false);
+  const [newItemName, setNewItemName] = useState('');
+  const [newItemAmount, setNewItemAmount] = useState('500000');
+
+  // Pembayaran server yang berhasil diproses pada sesi ini (kwitansi PDF per baris).
+  const [serverPayments, setServerPayments] = useState<ServerPayment[]>([]);
+
+  // Distribusi tagihan (POST /finance/items/{item}/distribute)
+  const [distributeItem, setDistributeItem] = useState<ServerPaymentItem | null>(null);
+  const [classRooms, setClassRooms] = useState<Array<{ id: string; name: string }>>([]);
+  const [distributeClassId, setDistributeClassId] = useState('');
+  const [distributePeriod, setDistributePeriod] = useState('');
+  const [distributing, setDistributing] = useState(false);
+
+  // Tab Kas & Bank
+  const [serverCash, setServerCash] = useState<ServerCashTransaction[] | null>(null);
+  const [cashStale, setCashStale] = useState(false);
+  const [bankAccounts, setBankAccounts] = useState<ServerBankAccount[] | null>(null);
+  const [cashType, setCashType] = useState<'income' | 'expense'>('income');
+  const [cashCategory, setCashCategory] = useState('');
+  const [cashAmount, setCashAmount] = useState('');
+  const [cashDate, setCashDate] = useState(new Date().toISOString().slice(0, 10));
+  const [savingCash, setSavingCash] = useState(false);
+  const [bankName, setBankName] = useState('');
+  const [bankAccountNo, setBankAccountNo] = useState('');
+  const [bankHolder, setBankHolder] = useState('');
+  const [savingBank, setSavingBank] = useState(false);
+
+  // Tab Laporan
+  const [reportFrom, setReportFrom] = useState(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1).toISOString().slice(0, 10);
+  });
+  const [reportTo, setReportTo] = useState(new Date().toISOString().slice(0, 10));
+  const [cashReport, setCashReport] = useState<ServerCashReport | null>(null);
+  const [loadingReport, setLoadingReport] = useState(false);
+
+  const refreshServerSummary = async (studentId: string) => {
+    const summary = await FinanceApiService.summary(studentId);
+    setServerSummary(summary);
+  };
+
+  useEffect(() => {
+    if (!TokenStorage.hasSession()) return;
+    let cancelled = false;
+    void (async () => {
+      // Tanpa mock (produksi), "siswa demo" = siswa pertama katalog server;
+      // dengan mock DEV, siswa demo tetap dicari berdasar NISN-nya.
+      try {
+        const rows = await StudentService.list(sppProfile?.nisn ?? '');
+        const target = rows[0];
+        if (!target || cancelled) return;
+        const summary = await FinanceApiService.summary(target.id);
+        if (cancelled) return;
+        setSummaryStudent({ id: target.id, name: target.name, nisn: target.nisn, kelas: target.kelas });
+        setServerSummary(summary);
+      } catch {
+        /* fallback mock */
+      }
+      try {
+        const items = await FinanceApiService.items();
+        if (!cancelled) {
+          setServerItems(items);
+          setItemsStale(false);
+        }
+      } catch {
+        if (!cancelled) setItemsStale(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Muat data kas & rekening bank saat tab Kas & Bank aktif.
+  useEffect(() => {
+    if (activeTab !== 'kas_bank' || !TokenStorage.hasSession()) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await FinanceApiService.cash();
+        if (!cancelled) {
+          setServerCash(rows);
+          setCashStale(false);
+        }
+      } catch {
+        if (!cancelled) setCashStale(true);
+      }
+      try {
+        const accounts = await FinanceApiService.bankAccounts();
+        if (!cancelled) setBankAccounts(accounts);
+      } catch {
+        /* biarkan daftar rekening kosong */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  const openDistribute = (item: ServerPaymentItem) => {
+    setDistributeItem(item);
+    setDistributeClassId('');
+    setDistributePeriod('');
+    void AcademicApiService.classes()
+      .then((rows) => setClassRooms(rows.map((c) => ({ id: c.id, name: c.name }))))
+      .catch(() => setClassRooms([]));
+  };
+
+  const handleDistributeSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!distributeItem) return;
+    setDistributing(true);
+    try {
+      const result = await FinanceApiService.distribute(distributeItem.id, {
+        class_room_id: distributeClassId || undefined,
+        period: distributePeriod || undefined,
+      });
+      onShowToast(
+        'Distribusi Tagihan',
+        `${result.created} tagihan dibuat, ${result.skipped} dilewati.`,
+        'success',
+      );
+      setDistributeItem(null);
+    } catch {
+      onShowToast('Distribusi Gagal', 'Server menolak permintaan distribusi.', 'error');
+    } finally {
+      setDistributing(false);
+    }
+  };
+
+  const handleSaveCash = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amount = parseInt(cashAmount, 10);
+    if (!cashCategory.trim() || isNaN(amount) || amount <= 0) {
+      onShowToast('Input Salah', 'Kategori dan nominal kas yang valid wajib diisi.', 'error');
+      return;
+    }
+    setSavingCash(true);
+    try {
+      await FinanceApiService.createCash({
+        type: cashType,
+        category: cashCategory.trim(),
+        amount,
+        transaction_at: cashDate,
+      });
+      const rows = await FinanceApiService.cash();
+      setServerCash(rows);
+      setCashCategory('');
+      setCashAmount('');
+      onShowToast('Transaksi Kas Disimpan', 'Mutasi kas tersimpan di server.', 'success');
+    } catch {
+      onShowToast('Gagal Menyimpan', 'Server menolak transaksi kas. Coba lagi.', 'error');
+    } finally {
+      setSavingCash(false);
+    }
+  };
+
+  const handleSaveBank = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!bankName.trim() || !bankAccountNo.trim() || !bankHolder.trim()) {
+      onShowToast('Input Salah', 'Bank, nomor rekening, dan pemilik wajib diisi.', 'error');
+      return;
+    }
+    setSavingBank(true);
+    try {
+      await FinanceApiService.createBankAccount({
+        bank: bankName.trim(),
+        account_number: bankAccountNo.trim(),
+        holder: bankHolder.trim(),
+      });
+      const accounts = await FinanceApiService.bankAccounts();
+      setBankAccounts(accounts);
+      setBankName('');
+      setBankAccountNo('');
+      setBankHolder('');
+      onShowToast('Rekening Disimpan', 'Rekening bank tersimpan di server.', 'success');
+    } catch {
+      onShowToast('Gagal Menyimpan', 'Server menolak data rekening. Coba lagi.', 'error');
+    } finally {
+      setSavingBank(false);
+    }
+  };
+
+  const handleLoadReport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoadingReport(true);
+    try {
+      setCashReport(await FinanceApiService.cashReport(reportFrom, reportTo));
+    } catch {
+      onShowToast('Gagal Memuat', 'Laporan kas tidak dapat dimuat dari server.', 'error');
+    } finally {
+      setLoadingReport(false);
+    }
+  };
+
+  const handlePayInvoice = async (invoiceId: string, remaining: number, title: string, studentId?: string) => {
+    if (remaining <= 0) return;
+    setPayingId(invoiceId);
+    try {
+      const payment = await FinanceApiService.pay(invoiceId, {
+        amount: remaining,
+        method: 'tunai',
+        reference: `WEB-${invoiceId.slice(0, 8)}-${Date.now().toString().slice(-6)}`,
+      });
+      // Kwitansi resmi ada di server (PDF); pemanggilan invoices() dengan
+      // invoice_id sebagai student_id salah semantic dan hasilnya dibuang.
+      addAuditLog('SPP_PAYMENT_PROCESSED', `Pembayaran ${title} lunas via server. Kwitansi ${payment.receipt_number}`, 'Bendahara', 'bendahara');
+      onShowToast('Pembayaran Berhasil', `Kwitansi ${payment.receipt_number} diterbitkan server.`, 'success');
+      setSelectedReceipt({
+        receiptNumber: payment.receipt_number,
+        studentName: summaryStudent?.name ?? sppProfile?.studentName ?? '',
+        nisn: summaryStudent?.nisn ?? sppProfile?.nisn ?? '',
+        kelas: summaryStudent?.kelas ?? sppProfile?.kelas ?? '',
+        month: title,
+        nominal: payment.amount,
+        paidDate: new Date().toISOString().slice(0, 10),
+      });
+      setServerPayments((prev) => [payment, ...prev]);
+      // Refresh ringkasan siswa yang tagihannya baru dibayar — id diambil dari
+      // invoice (student_id), bukan pencarian NISN mock yang bisa salah siswa.
+      const targetId = studentId ?? summaryStudent?.id;
+      if (targetId) {
+        try {
+          await refreshServerSummary(String(targetId));
+        } catch {
+          /* abaikan */
+        }
+      }
+    } catch {
+      onShowToast('Pembayaran Gagal', 'Server menolak (duplikat/lewat batas). Coba lagi.', 'error');
+    } finally {
+      setPayingId(null);
+    }
+  };
+
   // Quick SPP Pay simulation for a specific month
+  // DITANDAI: hanya simulasi lokal DEV (matriks mock). Pembayaran resmi wajib
+  // lewat panel LIVE API (handlePayInvoice → server + kwitansi unik).
   const handlePayMonth = (monthName: string) => {
+    if (!sppProfile) return;
+
     const updatedMonths = sppProfile.months.map((m) => {
       if (m.month === monthName && m.status !== 'Lunas') {
         const receiptNo = `KW-2026-${Date.now().toString().slice(-4)}`;
@@ -112,6 +377,8 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
 
   // Open Receipt
   const handleOpenReceipt = (month: string, nominal: number, receiptNo: string) => {
+    if (!sppProfile) return;
+
     setSelectedReceipt({
       receiptNumber: receiptNo,
       studentName: sppProfile.studentName,
@@ -176,10 +443,10 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
         </div>
 
         {/* Tab navigation */}
-        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+        <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200 overflow-x-auto max-w-full">
           <button
             onClick={() => setActiveTab('spp_matrix')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeTab === 'spp_matrix'
                 ? 'bg-white text-teal-800 shadow-xs font-bold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -190,7 +457,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('buku_kas')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeTab === 'buku_kas'
                 ? 'bg-white text-teal-800 shadow-xs font-bold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -201,7 +468,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('pos_biaya')}
-            className={`px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+            className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
               activeTab === 'pos_biaya'
                 ? 'bg-white text-teal-800 shadow-xs font-bold'
                 : 'text-slate-600 hover:text-slate-900'
@@ -210,24 +477,134 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
           >
             Master Pos Biaya
           </button>
+          <button
+            onClick={() => setActiveTab('kas_bank')}
+            className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'kas_bank'
+                ? 'bg-white text-teal-800 shadow-xs font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            data-testid="tab-finance-cash"
+          >
+            Kas & Bank
+          </button>
+          <button
+            onClick={() => setActiveTab('reports')}
+            className={`shrink-0 px-3.5 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+              activeTab === 'reports'
+                ? 'bg-white text-teal-800 shadow-xs font-bold'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            data-testid="tab-finance-reports"
+          >
+            Laporan
+          </button>
         </div>
       </div>
 
       {/* VIEW 1: 12-MONTH SPP MATRIX */}
       {activeTab === 'spp_matrix' && (
         <div className="space-y-6">
+          {serverSummary !== null && (
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-xs space-y-3" data-testid="finance-server-panel">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+                  Tagihan Server (Live API)
+                </h4>
+                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold font-mono">
+                  LIVE API
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+                <div className="p-3 rounded-xl bg-slate-50 border border-slate-200">
+                  <span className="text-slate-500 font-semibold">Total Tagihan</span>
+                  <p className="text-base font-black text-slate-900">{formatRupiah(serverSummary.total_tagihan)}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200">
+                  <span className="text-emerald-700 font-semibold">Terbayar</span>
+                  <p className="text-base font-black text-emerald-800">{formatRupiah(serverSummary.total_dibayar)}</p>
+                </div>
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200">
+                  <span className="text-rose-700 font-semibold">Sisa</span>
+                  <p className="text-base font-black text-rose-800">{formatRupiah(serverSummary.sisa)}</p>
+                </div>
+              </div>
+              <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                {serverSummary.invoices.map((inv) => {
+                  const remaining = inv.amount - inv.paid_amount;
+                  return (
+                    <div key={inv.id} className="p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                      <div>
+                        <p className="font-bold text-slate-800">{inv.title}</p>
+                        <p className="text-slate-500 font-mono text-[11px]">
+                          {inv.status.toUpperCase()} · {formatRupiah(inv.paid_amount)}/{formatRupiah(inv.amount)}
+                        </p>
+                      </div>
+                      {remaining > 0 ? (
+                        <button
+                          type="button"
+                          disabled={payingId === inv.id}
+                          onClick={() => void handlePayInvoice(inv.id, remaining, inv.title, inv.student_id)}
+                          className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-bold"
+                          data-testid={`btn-pay-${inv.id.slice(0, 8)}`}
+                        >
+                          {payingId === inv.id ? 'Memproses…' : `Bayar ${formatRupiah(remaining)}`}
+                        </button>
+                      ) : (
+                        <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold">LUNAS</span>
+                      )}
+                    </div>
+                  );
+                })}
+                {serverSummary.invoices.length === 0 && (
+                  <p className="p-3 text-xs text-slate-500">Belum ada tagihan untuk siswa demo.</p>
+                )}
+              </div>
+              {serverPayments.length > 0 && (
+                <div className="space-y-2 pt-2 border-t border-slate-100">
+                  <h5 className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Kwitansi Pembayaran Server
+                  </h5>
+                  <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                    {serverPayments.map((payment) => (
+                      <div key={payment.id} className="p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <div>
+                          <p className="font-mono font-bold text-slate-800">{payment.receipt_number}</p>
+                          <p className="text-slate-500 font-mono text-[11px]">
+                            {payment.paid_at} · {formatRupiah(payment.amount)}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => window.open(FinanceApiService.receiptPdfUrl(payment.id), '_blank', 'noopener')}
+                          className="px-3 py-1.5 rounded-lg bg-white border border-teal-200 hover:bg-teal-50 text-teal-700 font-bold flex items-center gap-1"
+                          data-testid={`btn-receipt-pdf-${payment.id.slice(0, 8)}`}
+                        >
+                          <FileText className="w-3.5 h-3.5" />
+                          <span>Kwitansi PDF</span>
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+          {/* Matriks SPP lokal: hanya bila profil siswa tersedia (DEV/mock). */}
+          {sppProfile && (
+          <>
           {/* Summary KPI Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
               <span className="text-xs text-slate-500 font-semibold">Total Tagihan Siswa</span>
               <p className="text-2xl font-black text-slate-900 mt-1">{formatRupiah(sppProfile.totalTagihan)}</p>
-              <p className="text-[11px] text-slate-400 mt-1">12 Bulan Tahun Pelajaran {schoolConfig.academicYear}</p>
+              <p className="text-[11px] text-slate-500 mt-1">12 Bulan Tahun Pelajaran {schoolConfig.academicYear}</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-emerald-200 bg-emerald-50/20 shadow-xs">
               <span className="text-xs text-emerald-700 font-semibold">Total Terbayar</span>
               <p className="text-2xl font-black text-emerald-800 mt-1">{formatRupiah(sppProfile.totalDibayar)}</p>
-              <p className="text-[11px] text-emerald-600 mt-1">Telah diverifikasi oleh Bendahara</p>
+              <p className="text-[11px] text-emerald-700 mt-1">Telah diverifikasi oleh Bendahara</p>
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-xs">
@@ -240,7 +617,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
           {/* Student Info Bar */}
           <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
             <div>
-              <span className="text-slate-400 font-medium">Siswa Terpilih: </span>
+              <span className="text-slate-500 font-medium">Siswa Terpilih: </span>
               <strong className="text-slate-900">{sppProfile.studentName}</strong>
               <span className="text-slate-500 font-mono ml-2">({sppProfile.nisn} — {sppProfile.kelas})</span>
             </div>
@@ -280,7 +657,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                   <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-xs">
                     {m.status === 'Lunas' ? (
                       <>
-                        <div className="text-[10px] text-slate-400 font-mono leading-tight">
+                        <div className="text-[10px] text-slate-500 font-mono leading-tight">
                           <p>Tgl: {m.paidDate}</p>
                           <p>{m.receiptNumber}</p>
                         </div>
@@ -293,13 +670,14 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                           <span>Kwitansi</span>
                         </button>
                       </>
-                    ) : (
+                      ) : (
                       <button
                         onClick={() => handlePayMonth(m.month)}
-                        className="w-full py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-lg text-xs font-bold transition-colors shadow-xs"
+                        className="w-full py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-600 rounded-lg text-xs font-bold transition-colors shadow-xs"
                         data-testid={`btn-pay-spp-${m.month}`}
+                        title="Simulasi lokal DEV — pembayaran resmi lewat panel LIVE API"
                       >
-                        Bayar Lunas (Simulasi)
+                        Bayar (Simulasi Lokal)
                       </button>
                     )}
                   </div>
@@ -307,6 +685,15 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               ))}
             </div>
           </div>
+          </>
+          )}
+          {!sppProfile && serverSummary === null && (
+            <EmptyState
+              title="Data tagihan belum tersedia"
+              message="Belum ada tagihan pada server untuk siswa ini dan matriks SPP lokal tidak dimuat."
+              testId="finance-empty-state"
+            />
+          )}
         </div>
       )}
 
@@ -320,7 +707,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 <span className="text-xs text-emerald-700 font-semibold">Total Pemasukan</span>
                 <p className="text-2xl font-black text-emerald-900 mt-1">{formatRupiah(totalPemasukan)}</p>
               </div>
-              <ArrowUpRight className="w-8 h-8 text-emerald-600 bg-emerald-100 p-1.5 rounded-xl shrink-0" />
+              <ArrowUpRight className="w-8 h-8 text-emerald-700 bg-emerald-100 p-1.5 rounded-xl shrink-0" />
             </div>
 
             <div className="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-xs flex items-center justify-between">
@@ -348,7 +735,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               </h3>
               <button
                 onClick={() => setIsNewTxModalOpen(true)}
-                className="px-3.5 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+                className="px-3.5 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 self-start sm:self-auto"
                 data-testid="btn-add-transaction"
               >
                 <Plus className="w-4 h-4" />
@@ -356,7 +743,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               </button>
             </div>
 
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <div className="overflow-x-auto border border-slate-200 rounded-xl" tabIndex={0} role="region" aria-label="Tabel data (geser horizontal bila perlu)">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
                   <tr>
@@ -401,13 +788,97 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       {/* VIEW 3: MASTER POS BIAYA */}
       {activeTab === 'pos_biaya' && (
         <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
-          <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
             <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
               Daftar Komponen & Pos Pembayaran Sekolah
             </h3>
-            <span className="text-xs text-slate-400">Tahun Ajaran {schoolConfig.academicYear}</span>
+            <span className="flex items-center gap-2">
+              <span className="text-xs text-slate-500">Tahun Ajaran {schoolConfig.academicYear}</span>
+              {serverItems !== null && (
+                <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold font-mono" data-testid="finance-items-live">
+                  LIVE API
+                </span>
+              )}
+            </span>
           </div>
 
+          {serverItems !== null ? (
+            <div className="space-y-3" data-testid="finance-items-server">
+              <form
+                className="flex flex-col sm:flex-row gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  const amount = parseInt(newItemAmount, 10);
+                  if (!newItemName.trim() || isNaN(amount) || amount < 0) {
+                    onShowToast('Input Salah', 'Nama pos dan nominal valid wajib diisi.', 'error');
+                    return;
+                  }
+                  void FinanceApiService.createItem({ name: newItemName.trim(), category: 'SPP', amount })
+                    .then(async () => {
+                      const items = await FinanceApiService.items();
+                      setServerItems(items);
+                      setNewItemName('');
+                      onShowToast('Pos Biaya Dibuat', 'Pos pembayaran tersimpan di server.', 'success');
+                    })
+                    .catch(() => onShowToast('Gagal Menyimpan', 'Server menolak. Coba lagi.', 'error'));
+                }}
+              >
+                <input
+                  type="text"
+                  value={newItemName}
+                  onChange={(e) => setNewItemName(e.target.value)}
+                  placeholder="Nama pos baru (mis. SPP Agustus)"
+                  className="flex-1 px-3.5 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  aria-label="Nama pos biaya baru"
+                />
+                <input
+                  type="number"
+                  value={newItemAmount}
+                  onChange={(e) => setNewItemAmount(e.target.value)}
+                  min={0}
+                  className="w-40 px-3.5 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  aria-label="Nominal pos biaya baru"
+                />
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl"
+                  data-testid="btn-create-item"
+                >
+                  Tambah Pos
+                </button>
+              </form>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {serverItems.map((item) => (
+                  <div key={item.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">{item.name}</span>
+                      <span className="font-mono font-bold text-teal-700 text-xs">{formatRupiah(item.amount)}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 font-mono">
+                      {item.category}{item.academic_year ? ` · ${item.academic_year}` : ''} · {item.active ? 'Aktif' : 'Nonaktif'}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => openDistribute(item)}
+                      className="w-full py-1.5 text-[11px] font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-colors"
+                      data-testid={`btn-distribute-${item.id.slice(0, 8)}`}
+                    >
+                      Distribusikan ke Kelas
+                    </button>
+                  </div>
+                ))}
+                {serverItems.length === 0 && (
+                  <p className="text-xs text-slate-500">Belum ada pos biaya di server.</p>
+                )}
+              </div>
+            </div>
+          ) : (
+          <>
+          {itemsStale && TokenStorage.hasSession() && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2" role="status">
+              Pos biaya server tidak dapat dimuat — menampilkan daftar lokal.
+            </p>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
               <div className="flex justify-between items-center">
@@ -449,8 +920,313 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               </p>
             </div>
           </div>
+          </>
+          )}
         </div>
       )}
+
+      {/* VIEW 4: KAS & BANK */}
+      {activeTab === 'kas_bank' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Entri Transaksi Kas
+            </h3>
+            <form onSubmit={handleSaveCash} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Jenis</label>
+                <select
+                  value={cashType}
+                  onChange={(e) => setCashType(e.target.value as 'income' | 'expense')}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  data-testid="input-cash-type"
+                >
+                  <option value="income">Pemasukan (Income)</option>
+                  <option value="expense">Pengeluaran (Expense)</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Kategori</label>
+                <input
+                  type="text"
+                  value={cashCategory}
+                  onChange={(e) => setCashCategory(e.target.value)}
+                  required
+                  placeholder="mis. Operasional"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  data-testid="input-cash-category"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Nominal</label>
+                <input
+                  type="number"
+                  value={cashAmount}
+                  onChange={(e) => setCashAmount(e.target.value)}
+                  required
+                  min={1}
+                  placeholder="0"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  data-testid="input-cash-amount"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Tanggal</label>
+                <input
+                  type="date"
+                  value={cashDate}
+                  onChange={(e) => setCashDate(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  data-testid="input-cash-date"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={savingCash}
+                className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-xl shadow-xs"
+                data-testid="btn-save-cash"
+              >
+                {savingCash ? 'Menyimpan…' : 'Simpan Kas'}
+              </button>
+            </form>
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-3">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Mutasi Kas Server
+            </h3>
+            {cashStale && TokenStorage.hasSession() && (
+              <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-2" role="status">
+                Data kas server tidak dapat dimuat.
+              </p>
+            )}
+            {serverCash === null ? (
+              <p className="text-xs text-slate-500">
+                {TokenStorage.hasSession() ? 'Memuat data kas…' : 'Masuk sebagai bendahara untuk memuat data kas.'}
+              </p>
+            ) : serverCash.length === 0 ? (
+              <p className="text-xs text-slate-500">Belum ada transaksi kas di server.</p>
+            ) : (
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
+                    <tr>
+                      <th className="p-3.5">Tanggal</th>
+                      <th className="p-3.5">Jenis</th>
+                      <th className="p-3.5">Kategori</th>
+                      <th className="p-3.5">PIC</th>
+                      <th className="p-3.5 text-right">Nominal</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {serverCash.map((tx) => (
+                      <tr key={tx.id} className="hover:bg-slate-50/80">
+                        <td className="p-3.5 font-mono text-slate-500 whitespace-nowrap">{tx.transaction_at}</td>
+                        <td className="p-3.5">
+                          <Badge variant={tx.type === 'income' ? 'success' : 'danger'}>
+                            {tx.type === 'income' ? 'Pemasukan' : 'Pengeluaran'}
+                          </Badge>
+                        </td>
+                        <td className="p-3.5 font-semibold text-slate-800">{tx.category}</td>
+                        <td className="p-3.5 text-slate-500 text-[11px]">{tx.pic ?? '-'}</td>
+                        <td className={`p-3.5 text-right font-mono font-bold ${tx.type === 'income' ? 'text-emerald-700' : 'text-rose-700'}`}>
+                          {tx.type === 'income' ? '+' : '-'} {formatRupiah(tx.amount)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
+              <Building className="w-4 h-4 text-teal-600" />
+              <span>Rekening Bank Sekolah</span>
+            </h3>
+            <form onSubmit={handleSaveBank} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Bank</label>
+                <input
+                  type="text"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  required
+                  placeholder="mis. BNI"
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  data-testid="input-bank-name"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Nomor Rekening</label>
+                <input
+                  type="text"
+                  value={bankAccountNo}
+                  onChange={(e) => setBankAccountNo(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  data-testid="input-bank-account"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Pemilik</label>
+                <input
+                  type="text"
+                  value={bankHolder}
+                  onChange={(e) => setBankHolder(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  data-testid="input-bank-holder"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={savingBank}
+                className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-xl shadow-xs"
+                data-testid="btn-save-bank"
+              >
+                {savingBank ? 'Menyimpan…' : 'Simpan Rekening'}
+              </button>
+            </form>
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+              {(bankAccounts ?? []).map((acc) => (
+                <div key={acc.id} className="p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div>
+                    <p className="font-bold text-slate-800">{acc.bank}</p>
+                    <p className="text-slate-500 font-mono text-[11px]">{acc.holder}</p>
+                  </div>
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-100 border border-slate-200 font-mono font-bold text-slate-700">
+                    {acc.account_masked}
+                  </span>
+                </div>
+              ))}
+              {bankAccounts !== null && bankAccounts.length === 0 && (
+                <p className="p-3 text-xs text-slate-500">Belum ada rekening terdaftar.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* VIEW 5: LAPORAN KAS */}
+      {activeTab === 'reports' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700">
+              Laporan Arus Kas
+            </h3>
+            <form onSubmit={handleLoadReport} className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Dari Tanggal</label>
+                <input
+                  type="date"
+                  value={reportFrom}
+                  onChange={(e) => setReportFrom(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  data-testid="input-report-from"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">Sampai Tanggal</label>
+                <input
+                  type="date"
+                  value={reportTo}
+                  onChange={(e) => setReportTo(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 font-mono text-slate-800"
+                  data-testid="input-report-to"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={loadingReport}
+                className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-xl shadow-xs"
+                data-testid="btn-load-report"
+              >
+                {loadingReport ? 'Memuat…' : 'Tampilkan Laporan'}
+              </button>
+            </form>
+          </div>
+
+          {cashReport !== null && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs">
+                <span className="text-xs text-slate-500 font-semibold">Saldo Awal</span>
+                <p className="text-2xl font-black text-slate-900 mt-1">{formatRupiah(cashReport.opening)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-emerald-200 bg-emerald-50/20 shadow-xs">
+                <span className="text-xs text-emerald-700 font-semibold">Pemasukan</span>
+                <p className="text-2xl font-black text-emerald-800 mt-1">{formatRupiah(cashReport.income)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-rose-200 bg-rose-50/20 shadow-xs">
+                <span className="text-xs text-rose-700 font-semibold">Pengeluaran</span>
+                <p className="text-2xl font-black text-rose-800 mt-1">{formatRupiah(cashReport.expense)}</p>
+              </div>
+              <div className="bg-white p-5 rounded-2xl border border-teal-200 bg-teal-50/20 shadow-xs">
+                <span className="text-xs text-teal-700 font-semibold">Saldo Akhir</span>
+                <p className="text-2xl font-black text-teal-900 mt-1">{formatRupiah(cashReport.closing)}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* DISTRIBUTION MODAL */}
+      <Modal
+        isOpen={distributeItem !== null}
+        onClose={() => setDistributeItem(null)}
+        title="Distribusi Tagihan ke Kelas"
+        subtitle={distributeItem ? `${distributeItem.name} — ${formatRupiah(distributeItem.amount)}` : ''}
+        maxWidth="md"
+        dataTestId="modal-distribute"
+      >
+        <form onSubmit={handleDistributeSubmit} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Kelas</label>
+            <select
+              value={distributeClassId}
+              onChange={(e) => setDistributeClassId(e.target.value)}
+              className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+            >
+              <option value="">Semua siswa</option>
+              {classRooms.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Periode</label>
+            <input
+              type="text"
+              value={distributePeriod}
+              onChange={(e) => setDistributePeriod(e.target.value)}
+              placeholder="mis. 2026-08"
+              className="w-full px-3.5 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+              data-testid="input-distribute-period"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setDistributeItem(null)}
+              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={distributing}
+              className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 disabled:opacity-50 rounded-xl shadow-xs"
+              data-testid="btn-distribute"
+            >
+              {distributing ? 'Mendistribusikan…' : 'Distribusikan'}
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* OFFICIAL KWITANSI PRINT MODAL */}
       {selectedReceipt && (
@@ -517,7 +1293,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
               {/* Amount & Treasurer Signature */}
               <div className="flex items-end justify-between pt-4 border-t border-slate-200">
                 <div className="p-3 bg-slate-50 border border-slate-300 rounded-xl">
-                  <span className="text-[10px] text-slate-400 block font-semibold">Jumlah Terbilang:</span>
+                  <span className="text-[10px] text-slate-500 block font-semibold">Jumlah Terbilang:</span>
                   <span className="text-lg font-black font-mono text-slate-900">
                     {formatRupiah(selectedReceipt.nominal)}
                   </span>
@@ -531,7 +1307,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                       Ibu Endang Sulistyo, S.E.
                     </span>
                   </div>
-                  <p className="text-[9px] text-slate-400 font-mono">NIP. 198004122006042008</p>
+                  <p className="text-[9px] text-slate-500 font-mono">NIP. 198004122006042008</p>
                 </div>
               </div>
             </div>
@@ -549,7 +1325,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                   window.print();
                   onShowToast('Cetak Kwitansi', 'Membuka dialog cetak browser kwitansi resmi.', 'info');
                 }}
-                className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs flex items-center gap-1.5"
+                className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs flex items-center gap-1.5"
               >
                 <Printer className="w-4 h-4" />
                 <span>Cetak Kwitansi Ini</span>
@@ -642,7 +1418,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
             </button>
             <button
               type="submit"
-              className="px-4 py-2 text-xs font-bold text-white bg-teal-600 hover:bg-teal-700 rounded-xl shadow-xs"
+              className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs"
             >
               Simpan Transaksi
             </button>

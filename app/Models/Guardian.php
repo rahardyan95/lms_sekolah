@@ -14,6 +14,13 @@ class Guardian extends Model
 
     protected $hidden = ['phone'];
 
+    protected $casts = ['phone' => 'encrypted'];
+
+    public function user()
+    {
+        return $this->belongsTo(User::class, 'user_id');
+    }
+
     public function students()
     {
         return $this->belongsToMany(Student::class, 'guardian_student');

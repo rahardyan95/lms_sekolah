@@ -18,7 +18,12 @@ class Student extends Model
 
     protected $hidden = ['nik'];
 
-    protected $casts = ['birth_date' => 'date'];
+    protected $casts = [
+        'birth_date' => 'date',
+        // NIK adalah PII — dienkripsi at rest (FRD: encrypted). Otomatis didekripsi
+        // saat diakses; hidden agar tidak pernah ikut serialisasi API.
+        'nik' => 'encrypted',
+    ];
 
     public function user()
     {
@@ -38,5 +43,15 @@ class Student extends Model
     public function attendances()
     {
         return $this->hasMany(Attendance::class);
+    }
+
+    public function invoices()
+    {
+        return $this->hasMany(Invoice::class);
+    }
+
+    public function grades()
+    {
+        return $this->hasMany(Grade::class);
     }
 }

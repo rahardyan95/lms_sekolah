@@ -1,0 +1,66 @@
+# Production overlay — dipakai BERSAMA base compose di VPS:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build -d
+# Isi: matikan mailpit & vite-dev, paksa Caddy TLS, batasi resource, restart always.
+# Dev lokal TIDAK memakai file ini (tetap `docker compose up` biasa).
+
+services:
+  mailpit:
+    profiles: ["dev-only-disabled-in-prod"]
+
+  frontend:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  backend:
+    image: lms_sekolah-backend-prod
+    # Octane: worker default `auto` (jumlah CPU); override via OCTANE_WORKERS di .env
+    # untuk VPS ber-RAM kecil. `exec` agar PID 1 = php (SIGTERM bersih).
+    command:
+      - sh
+      - -c
+      - exec php artisan octane:start --server=frankenphp --host=0.0.0.0 --port=8000 --max-requests=500 --workers=${OCTANE_WORKERS:-auto}
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  queue:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "1.0"
+          memory: 512M
+
+  scheduler:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  db:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "2.0"
+          memory: 1G
+
+  redis:
+    restart: always
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  caddy:
+    restart: always

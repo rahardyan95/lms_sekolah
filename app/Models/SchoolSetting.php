@@ -12,5 +12,5 @@ class SchoolSetting extends Model
 
     protected $fillable = ['key', 'value', 'is_secret', 'version', 'updated_by'];
 
-    protected $casts = ['is_secret' => 'boolean'];
+    protected $casts = ['is_secret' => 'boolean', 'value' => 'encrypted'];
 }

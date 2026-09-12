@@ -1,3 +1,6 @@
+# Base = production-safe defaults.
+# Lokal dev: `docker compose up` (otomatis gabung override dev).
+# Prod simulasi/VPS: `docker compose -f docker-compose.yml up --build -d`.
 services:
   db:
     image: postgres:17-alpine
@@ -6,9 +9,11 @@ services:
     environment:
       POSTGRES_DB: ${DB_DATABASE:-lms_sekolah}
       POSTGRES_USER: ${DB_USERNAME:-lms}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-secret}
-    ports:
-      - "5432:5432"
+      # Fail-closed: tanpa default lemah. Dev mengisi via .env (lihat .env.example);
+      # production wajib password kuat (dienforce entrypoint.sh + app:readiness).
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD wajib diisi (lihat .env.example)}
+    # Keamanan: tanpa ports: di base (prod) — hanya reachable via lms-net.
+    # Dev: port host dipublish ulang di docker-compose.override.yml.
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
@@ -23,13 +28,15 @@ services:
     image: redis:7-alpine
     container_name: lms_redis
     restart: unless-stopped
-    ports:
-      - "6379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+    # requirepass aktif bila REDIS_PASSWORD diisi (wajib di production);
+    # tanpa ports: di base — hanya reachable via lms-net.
+    command: ["sh", "-c", "exec redis-server --appendonly yes $( [ -n \"$REDIS_PASSWORD\" ] && printf '--requirepass %s' \"$REDIS_PASSWORD\" )"]
     volumes:
       - redisdata:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli ping >/dev/null 2>&1 || redis-cli -a \"$$REDIS_PASSWORD\" ping >/dev/null 2>&1"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -41,10 +48,11 @@ services:
     container_name: lms_meili
     restart: unless-stopped
     environment:
-      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:-meiliMasterKey123}
+      # Fail-closed: tanpa default master key. Dev mengisi via .env;
+      # production wajib kunci kuat (dienforce entrypoint.sh + app:readiness).
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?MEILI_MASTER_KEY wajib diisi (lihat .env.example)}
       MEILI_NO_ANALYTICS: "true"
-    ports:
-      - "7700:7700"
+    # Tanpa ports: di base — hanya reachable via lms-net.
     volumes:
       - meilidata:/meili_data
     networks:
@@ -54,9 +62,40 @@ services:
     image: axllent/mailpit:v1.21
     container_name: lms_mailpit
     restart: unless-stopped
+    profiles: ["dev"]
+    # DEV-only (profile): tidak ikut `docker compose -f docker-compose.yml up` prod.
+    # Lokal dev tetap aktif via override yang mengaktifkan profile dev.
+    networks:
+      - lms-net
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: lms_caddy
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
     ports:
-      - "8025:8025"
-      - "1025:1025"
+      - "80:80"
+      - "443:443"
+    volumes:
+      # Prod TLS: set CADDYFILE=Caddyfile.prod di .env server (default: Caddyfile dev :80).
+      - ./docker/caddy/${CADDYFILE:-Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      APP_URL: ${APP_URL:-http://localhost:8000}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:8080}
+      # Dipakai Caddyfile.prod (ACME + site blocks). Kosong = Caddy gagal start
+      # dengan pesan jelas, bukan silent http.
+      API_HOST: ${API_HOST:-}
+      FRONTEND_HOST: ${FRONTEND_HOST:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - lms-net
 
@@ -64,8 +103,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Runtime produksi: FrankenPHP + Octane. Dev override memakai target `cli`.
+      target: prod
     container_name: lms_backend
     restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     depends_on:
       db:
         condition: service_healthy
@@ -81,12 +127,71 @@ services:
       MEILISEARCH_HOST: http://meilisearch:7700
       MAIL_HOST: mailpit
     volumes:
-      - .:/var/www/html
-      - /var/www/html/vendor
-      - /var/www/html/node_modules
-      - /var/www/html/client/node_modules
-      - /var/www/html/client/dist
-    command: sh -c "php artisan migrate --force && php artisan serve --host=0.0.0.0 --port=8000"
+      - storage_data:/var/www/html/storage/app
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8000/up | grep -qi up || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    networks:
+      - lms-net
+
+  queue:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Worker CLI tidak butuh FrankenPHP — pakai target `cli` (lebih ringan).
+      target: cli
+    container_name: lms_queue
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+      MEILISEARCH_HOST: http://meilisearch:7700
+      MAIL_HOST: mailpit
+    volumes:
+      - storage_data:/var/www/html/storage/app
+    entrypoint: ["php", "artisan", "queue:work", "--tries=3", "--backoff=10", "--sleep=3"]
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -q '[q]ueue:work' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - lms-net
+
+  scheduler:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Sama seperti queue: cukup CLI target.
+      target: cli
+    container_name: lms_scheduler
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    env_file:
+      - ./.env
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+    volumes:
+      - storage_data:/var/www/html/storage/app
+    entrypoint: ["php", "artisan", "schedule:work"]
+    healthcheck:
+      test: ["CMD-SHELL", "ps aux | grep -q '[s]chedule:work' || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
     networks:
       - lms-net
 
@@ -94,19 +199,23 @@ services:
     build:
       context: ./client
       dockerfile: Dockerfile
-      target: dev
+      target: prod
+      args:
+        # TANPA fallback localhost: build prod wajib VITE_API_URL dari .env
+        # (deploy.sh gagal-cepat bila kosong; ApiClient juga fail-fast di runtime).
+        VITE_API_URL: ${VITE_API_URL:-}
     container_name: lms_frontend
     restart: unless-stopped
     depends_on:
       - backend
     ports:
-      - "5173:5173"
-    environment:
-      VITE_API_URL: http://localhost:8000/api/v1
-    volumes:
-      - ./client:/app
-      - /app/node_modules
-      - /app/dist
+      - "8080:80"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/health | grep -qi ok || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - lms-net
 
@@ -114,6 +223,9 @@ volumes:
   pgdata:
   redisdata:
   meilidata:
+  storage_data:
+  caddy_data:
+  caddy_config:
 
 networks:
   lms-net:

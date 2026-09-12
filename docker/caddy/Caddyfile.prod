@@ -1,0 +1,52 @@
+# Caddy PRODUCTION — TLS otomatis via ACME (Let's Encrypt) + HSTS preload.
+# Dipakai dengan: CADDYFILE=Caddyfile.prod di .env server.
+# Syarat: DNS API_HOST & FRONTEND_HOST sudah mengarah ke IP VPS ini,
+# port 80+443 terbuka. Sertifikat tersimpan di volume caddy_data.
+{
+	email {$ACME_EMAIL}
+}
+
+{$API_HOST} {
+	# API Laravel (termasuk health check)
+	handle /up {
+		reverse_proxy backend:8000
+	}
+	handle /api/* {
+		reverse_proxy backend:8000
+	}
+	# Selain itu tolak — API host tidak menyajikan SPA.
+	handle {
+		respond "Not Found" 404
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}
+
+{$FRONTEND_HOST} {
+	# Frontend SPA (nginx prod, sudah punya CSP + /health sendiri)
+	reverse_proxy frontend:80
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
+		-Server
+	}
+	log {
+		output stdout
+		format json
+	}
+}

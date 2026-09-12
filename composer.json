@@ -9,9 +9,11 @@
         "php": "^8.4",
         "barryvdh/laravel-dompdf": "^3.0",
         "laravel/framework": "^13.0",
+        "laravel/octane": "^2.19",
         "laravel/sanctum": "^4.0",
         "laravel/tinker": "^3.0",
         "meilisearch/meilisearch-php": "^1.0",
+        "sentry/sentry-laravel": "^4.27",
         "simplesoftwareio/simple-qrcode": "^4.2",
         "spatie/laravel-permission": "^6.0|^7.0|^8.0"
     },

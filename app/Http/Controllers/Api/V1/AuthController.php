@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\RoleEnum;
 use App\Http\Controllers\Controller;
+use App\Http\Middleware\WebTokenCookie;
 use App\Http\Requests\LoginRequest;
 use App\Http\Resources\MeResource;
 use App\Models\AuditLog;
@@ -17,7 +18,9 @@ class AuthController extends Controller
 {
     public function login(LoginRequest $request): JsonResponse
     {
-        if (config('app.env') !== 'testing') {
+        // Anti brute-force per IP+identifier: hanya ditegakkan di produksi
+        // (local/testing tidak boleh flaky karena 429 saat pengembangan/E2E).
+        if (app()->environment('production')) {
             $key = 'login:'.str($request->ip())->toString().':'.$request->string('identifier');
             if (RateLimiter::tooManyAttempts($key, 10)) {
                 return $this->error('RATE_LIMITED', 'Terlalu banyak percobaan. Coba lagi nanti.', 429);
@@ -39,6 +42,15 @@ class AuthController extends Controller
         if ($request->hasSession()) {
             $request->session()->regenerate();
         }
+        // Token lama yang sudah lewat masa berlaku dibuang agar tabel
+        // personal_access_tokens tidak tumbuh tanpa batas (login berulang).
+        $expiration = (int) config('sanctum.expiration', 0);
+        $stale = $user->tokens()->whereNotNull('expires_at')->where('expires_at', '<=', now());
+        if ($expiration > 0) {
+            $stale->orWhere('created_at', '<', now()->subMinutes($expiration));
+        }
+        $stale->delete();
+
         $token = $user->createToken('spa')->plainTextToken;
 
         AuditLog::create([
@@ -53,7 +65,7 @@ class AuthController extends Controller
 
         $role = RoleEnum::tryFrom((string) ($user->getRoleNames()->first() ?? ''));
 
-        return response()->json([
+        $response = response()->json([
             'data' => [
                 'token' => $token,
                 'portal' => $role?->portal() ?? 'dashboard',
@@ -63,6 +75,13 @@ class AuthController extends Controller
             'errors' => null,
             'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
         ]);
+
+        // Klien web (SPA): simpan juga di cookie httpOnly; mobile tetap Bearer.
+        if ($request->header(WebTokenCookie::CLIENT_HEADER) === '1') {
+            $response->withCookie(WebTokenCookie::issueCookie($token));
+        }
+
+        return $response;
     }
 
     public function me(Request $request): JsonResponse
@@ -88,7 +107,7 @@ class AuthController extends Controller
             'meta' => null,
             'errors' => null,
             'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
-        ]);
+        ])->withCookie(WebTokenCookie::forgetCookie());
     }
 
     protected function error(string $code, string $message, int $status): JsonResponse

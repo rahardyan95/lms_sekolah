@@ -1,0 +1,85 @@
+# Dev override — otomatis dipakai saat `docker compose up`.
+# Live-reload: bind source + vite dev server di 5173.
+# CATATAN: base compose TIDAK mem-publish port infra (aman produksi);
+# di sini port host dibuka lagi khusus untuk kenyamanan development.
+services:
+  db:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  meilisearch:
+    ports:
+      - "7700:7700"
+
+  mailpit:
+    profiles: ["dev"]
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # Dev memakai target `cli` (artisan serve) — FrankenPHP+Octane hanya di prod.
+      target: cli
+    image: lms_sekolah-backend-dev
+    entrypoint: ["/usr/local/bin/entrypoint.sh"]
+    command: ["php", "artisan", "serve", "--host=0.0.0.0", "--port=8000"]
+    environment:
+      # Dev-only: fork worker php -S (produksi memakai Octane, bukan ini).
+      PHP_CLI_SERVER_WORKERS: ${PHP_CLI_SERVER_WORKERS:-8}
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - storage_data:/var/www/html/storage/app
+      # Dev-only: opcache harus revalidate agar perubahan kode langsung terbaca
+      # (produksi tetap validate_timestamps=0 + container baru per deploy).
+      - ./docker/php/zz-dev-override.ini:/usr/local/etc/php/conf.d/zz-dev-override.ini:ro
+
+  queue:
+    # Berbagi SATU image dev dengan backend: isi image mereka harus identik
+    # (vendor/composer.lock). Kalau dibiarkan punya image sendiri, worker bisa
+    # jalan dengan vendor basi → class dari lockfile terbaru tidak ketemu.
+    image: lms_sekolah-backend-dev
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - storage_data:/var/www/html/storage/app
+      # Dev-only: opcache harus revalidate agar perubahan kode langsung terbaca
+      # (produksi tetap validate_timestamps=0 + container baru per deploy).
+      - ./docker/php/zz-dev-override.ini:/usr/local/etc/php/conf.d/zz-dev-override.ini:ro
+
+  scheduler:
+    # Sama seperti queue: satu image dev bersama backend.
+    image: lms_sekolah-backend-dev
+    volumes:
+      - .:/var/www/html
+      - /var/www/html/vendor
+      - storage_data:/var/www/html/storage/app
+      # Dev-only: opcache harus revalidate agar perubahan kode langsung terbaca
+      # (produksi tetap validate_timestamps=0 + container baru per deploy).
+      - ./docker/php/zz-dev-override.ini:/usr/local/etc/php/conf.d/zz-dev-override.ini:ro
+
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+      target: dev
+    ports:
+      - "5173:5173"
+      # NOTE: mapping 8080:80 warisan base ikut terbit di dev tapi tidak dipakai
+      # (vite dev hanya listen 5173). Dibiarkan demi kompatibilitas merge compose.
+    environment:
+      VITE_API_URL: http://localhost:8000/api/v1
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+      - /app/dist
+    # vite dev tidak menyediakan /health nginx — matikan healthcheck warisan base
+    healthcheck:
+      test: ["NONE"]

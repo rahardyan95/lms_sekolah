@@ -126,8 +126,10 @@ export interface CbtQuestion {
     D: string;
     E: string;
   };
-  correctAnswer: 'A' | 'B' | 'C' | 'D' | 'E';
-  explanation: string;
+  // Kunci TIDAK ada di bundle — grading resmi hanya di server.
+  // Field opsional untuk kompatibilitas tipe internal (tidak pernah diisi mock).
+  correctAnswer?: 'A' | 'B' | 'C' | 'D' | 'E';
+  explanation?: string;
 }
 
 export interface CbtExam {
@@ -240,6 +242,8 @@ export interface LibraryBook {
   pageCount: number;
   coverImage: string;
   summary: string;
+  /** URL unduh bertanda tangan dari server (hanya untuk data server). */
+  ebookUrl?: string | null;
 }
 
 export interface NewsPost {

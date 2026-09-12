@@ -2,20 +2,30 @@
 
 namespace App\Http\Controllers\Api\V1;
 
+use App\Enums\AttendanceStatus;
 use App\Http\Controllers\Controller;
+use App\Http\Requests\ManualAttendanceRequest;
 use App\Http\Requests\ScanAttendanceRequest;
 use App\Models\Attendance;
 use App\Models\Student;
+use App\Services\AttendanceReportService;
 use App\Services\AttendanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceController extends Controller
 {
-    public function __construct(protected AttendanceService $service) {}
+    public function __construct(
+        protected AttendanceService $service,
+        protected AttendanceReportService $reportService,
+    ) {}
 
     public function scan(ScanAttendanceRequest $request): JsonResponse
     {
+        $this->authorize('scan', Attendance::class);
+
         $student = Student::where('nisn', $request->string('nisn'))->firstOrFail();
 
         $attendance = $this->service->recordScan(
@@ -33,10 +43,61 @@ class AttendanceController extends Controller
         ], 201);
     }
 
+    public function manual(ManualAttendanceRequest $request): JsonResponse
+    {
+        $student = Student::where('nisn', $request->string('nisn'))->firstOrFail();
+
+        $attendance = $this->service->recordManual(
+            $student,
+            $request->date('date')->format('Y-m-d'),
+            AttendanceStatus::from($request->string('status')->toString()),
+            $request->string('reason')->toString(),
+            $request->user(),
+        );
+
+        return response()->json([
+            'data' => $attendance,
+            'meta' => null, 'errors' => null,
+            'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
+        ], 201);
+    }
+
     public function reports(Request $request): JsonResponse
     {
         $this->authorize('viewReports', Attendance::class);
 
+        $data = $this->validateFilters($request);
+
+        return response()->json([
+            'data' => $this->reportService->query($data)->paginate(25),
+            'meta' => null, 'errors' => null,
+            'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
+        ]);
+    }
+
+    /** Ekspor CSV streaming (FRD: export CSV/PDF) — aman dari formula injection. */
+    public function export(Request $request): StreamedResponse
+    {
+        $this->authorize('viewReports', Attendance::class);
+
+        $data = $this->validateFilters($request);
+        $service = $this->reportService;
+        $filename = 'presensi-'.$data['from'].'_'.$data['to'].'.csv';
+
+        return response()->streamDownload(function () use ($service, $data): void {
+            $out = fopen('php://output', 'w');
+            foreach ($service->csvRows($data) as $row) {
+                fputcsv($out, array_map([$service, 'sanitizeCell'], $row));
+            }
+            fclose($out);
+        }, $filename, [
+            'Content-Type' => 'text/csv; charset=UTF-8',
+        ]);
+    }
+
+    /** @return array{class_room_id?: string|null, from: string, to: string, status?: string|null} */
+    private function validateFilters(Request $request): array
+    {
         $data = $request->validate([
             'class_room_id' => ['nullable', 'string'],
             'from' => ['required', 'date'],
@@ -44,15 +105,20 @@ class AttendanceController extends Controller
             'status' => ['nullable', 'string'],
         ]);
 
-        $query = Attendance::with('student')
-            ->whereBetween('date', [$data['from'], $data['to']])
-            ->when($data['status'] ?? null, fn ($q, $s) => $q->where('status', $s))
-            ->when($data['class_room_id'] ?? null, fn ($q, $c) => $q->whereHas('student', fn ($s) => $s->where('class_room_id', $c)));
+        // Rentang dibatasi agar ekspor tidak menarik data tak terbatas.
+        $from = Carbon::parse($data['from']);
+        $to = Carbon::parse($data['to']);
+        if ($from->diffInDays($to) > AttendanceReportService::MAX_EXPORT_DAYS) {
+            abort(response()->json([
+                'data' => null, 'meta' => null,
+                'errors' => [
+                    'code' => 'RANGE_TOO_WIDE',
+                    'message' => 'Rentang laporan maksimal '.AttendanceReportService::MAX_EXPORT_DAYS.' hari.',
+                ],
+                'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
+            ], 422));
+        }
 
-        return response()->json([
-            'data' => $query->paginate(25),
-            'meta' => null, 'errors' => null,
-            'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
-        ]);
+        return $data;
     }
 }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState, Suspense } from 'react';
 import { UserRole, Student, SpmbCandidate, SchoolConfig } from './types';
 import {
   initialSchoolConfig,
@@ -20,47 +20,104 @@ import {
   mockAnnouncements,
 } from './data/mockData';
 
+// Data demo hanya di DEV. Cabang ini di-fold saat build, sehingga berkas mock
+// tidak ikut ke bundle produksi: tidak ada baris data karangan yang terkirim.
+const MOCKS = import.meta.env.DEV
+  ? {
+      students: mockStudents,
+      attendanceRecords: mockAttendanceRecords,
+      assignments: mockAssignments,
+      grades: mockGrades,
+      candidates: mockSpmbCandidates,
+      announcements: mockAnnouncements,
+      schedule: mockSchedule,
+      materials: mockMaterials,
+      cbtExams: mockCbtExams,
+      libraryBooks: mockLibraryBooks,
+      cashTransactions: mockCashTransactions,
+      spmbWaves: mockSpmbWaves,
+      subjects: mockSubjects,
+      newsPosts: mockNewsPosts,
+      sppProfile: mockSppProfile,
+    }
+  : null;
+
 // Common Components
 import { TopDevBar } from './components/common/TopDevBar';
 import { Navbar } from './components/layout/Navbar';
 import { Sidebar, ActiveModuleView } from './components/layout/Sidebar';
 import { MobileShellWrapper } from './components/layout/MobileShellWrapper';
 import { ToastContainer, ToastMessage } from './components/common/Toast';
+import { ModuleErrorBoundary } from './components/common/ModuleErrorBoundary';
+import { ModuleLoader } from './components/lazy/ModuleLoader';
 import { SecurityAuditModal } from './components/security/SecurityAuditModal';
+import { AuthService, type SessionProfile } from './services/AuthService';
+import { SessionManager } from './services/SessionManager';
+import { initialsAvatar } from './utils/helpers';
+import { ROLE_HOME, canAccess, isStaffRole, moduleFromPath, pathForModule, resolveInitialView } from './lib/AppRouter';
+import { DashboardApiService, type DashboardSummary } from './services/DashboardApiService';
+import { ProtectedRoute } from './components/auth/ProtectedRoute';
 
-// Module Components
-import { AuthModule } from './components/modules/auth/AuthModule';
-import { AdminDashboardOverview } from './components/modules/dashboard/AdminDashboardOverview';
-import { KtsModule } from './components/modules/kts/KtsModule';
-import { AttendanceModule } from './components/modules/attendance/AttendanceModule';
-import { WhatsAppModule } from './components/modules/whatsapp/WhatsAppModule';
-import { ParentPortalModule } from './components/modules/parent/ParentPortalModule';
-import { StudentPortalModule } from './components/modules/student/StudentPortalModule';
-import { CbtExamModule } from './components/modules/cbt/CbtExamModule';
-import { LibraryModule } from './components/modules/library/LibraryModule';
-import { FinanceModule } from './components/modules/finance/FinanceModule';
-import { SpmbModule } from './components/modules/spmb/SpmbModule';
-import { AcademicModule } from './components/modules/academic/AcademicModule';
-import { CmsPublicModule } from './components/modules/cms/CmsPublicModule';
-import { SettingsModule } from './components/modules/settings/SettingsModule';
+// Module Components — lazy via ModuleLoader (code-splitting per modul).
+const AuthModule = ModuleLoader.Auth;
+const ResetPasswordModule = ModuleLoader.ResetPassword;
+const AdminDashboardOverview = ModuleLoader.Dashboard;
+const KtsModule = ModuleLoader.Kts;
+const AttendanceModule = ModuleLoader.Attendance;
+const WhatsAppModule = ModuleLoader.WhatsApp;
+const ParentPortalModule = ModuleLoader.Parent;
+const StudentPortalModule = ModuleLoader.Student;
+const CbtExamModule = ModuleLoader.Cbt;
+const LibraryModule = ModuleLoader.Library;
+const FinanceModule = ModuleLoader.Finance;
+const SpmbModule = ModuleLoader.Spmb;
+const AcademicModule = ModuleLoader.Academic;
+const CmsPublicModule = ModuleLoader.Cms;
+const CmsAdminModule = ModuleLoader.CmsAdmin;
+const SettingsModule = ModuleLoader.Settings;
+
+/** Batas idle sesi (FRD §3.1): 30 menit tanpa aktivitas → sesi diakhiri. */
+const IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+/** Cek idle tiap menit — cukup rapat, murah, tanpa timer per-event. */
+const IDLE_CHECK_INTERVAL_MS = 60 * 1000;
+
+function ModuleFallback() {
+  return (
+    <div
+      className="p-6 rounded-2xl border border-slate-200 bg-white shadow-xs animate-pulse"
+      aria-busy="true"
+      aria-label="Memuat modul"
+    >
+      <div className="h-4 w-1/3 rounded bg-slate-200" />
+      <div className="mt-3 h-3 w-2/3 rounded bg-slate-100" />
+      <div className="mt-2 h-3 w-1/2 rounded bg-slate-100" />
+    </div>
+  );
+}
 
 export function App() {
   // Global State
-  const [currentRole, setCurrentRole] = useState<UserRole>('super_admin');
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(true);
-  const [activeView, setActiveView] = useState<ActiveModuleView>('dashboard');
+  const [currentRole, setCurrentRole] = useState<UserRole>('public');
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean>(false);
+  const [sessionChecked, setSessionChecked] = useState<boolean>(false);
+  // Identitas pengguna dari server (GET /me) — bukan metadata hardcoded UI.
+  const [sessionProfile, setSessionProfile] = useState<SessionProfile | null>(null);
+  // Ringkasan dashboard staf dari server (angka nyata, bukan mock).
+  const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState<boolean>(false);
+  const [activeView, setActiveView] = useState<ActiveModuleView>('cms');
   const [isMobileView, setIsMobileView] = useState<boolean>(false);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState<boolean>(false);
   const [auditCount, setAuditCount] = useState<number>(3);
 
   // Core Data Stores
   const [schoolConfig, setSchoolConfig] = useState<SchoolConfig>(initialSchoolConfig);
-  const [students, setStudents] = useState<Student[]>(mockStudents);
-  const [attendanceRecords, setAttendanceRecords] = useState(mockAttendanceRecords);
-  const [assignments, setAssignments] = useState(mockAssignments);
-  const [grades, setGrades] = useState(mockGrades);
-  const [candidates, setCandidates] = useState(mockSpmbCandidates);
-  const [announcements, setAnnouncements] = useState(mockAnnouncements);
+  const [students, setStudents] = useState<Student[]>(MOCKS?.students ?? []);
+  const [attendanceRecords, setAttendanceRecords] = useState(MOCKS?.attendanceRecords ?? []);
+  const [assignments, setAssignments] = useState(MOCKS?.assignments ?? []);
+  const [grades, setGrades] = useState(MOCKS?.grades ?? []);
+  const [candidates, setCandidates] = useState(MOCKS?.candidates ?? []);
+  const [announcements, setAnnouncements] = useState(MOCKS?.announcements ?? []);
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
   // Show Toast Helper
@@ -85,35 +142,165 @@ export function App() {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   };
 
-  // Switch Role Handler (Auto-routes to the most relevant view for that role)
-  const handleRoleChange = (role: UserRole) => {
-    setCurrentRole(role);
-    setIsLoggedIn(true);
+  // Restore sesi saat reload: token valid → identitas server, tanpa bypass.
+  useEffect(() => {
+    let cancelled = false;
+    void SessionManager.restore().then((profile) => {
+      if (cancelled) return;
+      if (profile) {
+        setSessionProfile(profile);
+        setCurrentRole(profile.role);
+        setIsLoggedIn(true);
+        // Hormati deep-link URL bila peran boleh; jika tidak → halaman perannya.
+        setActiveView(resolveInitialView(profile.role, window.location.pathname));
+      }
+      setSessionChecked(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-    if (role === 'siswa') {
-      setActiveView('student');
-    } else if (role === 'orang_tua') {
-      setActiveView('parent');
-    } else if (role === 'calon_siswa') {
-      setActiveView('spmb');
-    } else if (role === 'guru') {
-      setActiveView('academic');
-    } else if (role === 'bendahara') {
-      setActiveView('finance');
-    } else if (role === 'operator') {
-      setActiveView('attendance');
-    } else if (role === 'public') {
+  // Sesi habis di tengah kerja (401 dari API) → kembali ke tampilan publik + jelaskan.
+  useEffect(() => {
+    const onExpired = () => {
+      setSessionProfile(null);
+      setIsLoggedIn(false);
+      setCurrentRole('public');
       setActiveView('cms');
-    } else {
-      setActiveView('dashboard');
+      window.history.replaceState({}, '', '/');
+      showToast('Sesi Berakhir', 'Sesi Anda berakhir. Silakan masuk kembali.', 'error');
+    };
+    window.addEventListener('lms:session-expired', onExpired);
+    return () => window.removeEventListener('lms:session-expired', onExpired);
+  }, []);
+
+  // Timeout idle (FRD §3.1): 30 menit tanpa aktivitas → kembali ke tampilan publik.
+  // Server tetap otoritas akhir (token kedaluwarsa → 401 → 'lms:session-expired').
+  useEffect(() => {
+    if (!isLoggedIn) return;
+
+    let lastActivity = Date.now();
+    const markActive = () => {
+      lastActivity = Date.now();
+    };
+    const activityEvents: (keyof WindowEventMap)[] = ['mousemove', 'keydown', 'click', 'touchstart'];
+    activityEvents.forEach((event) => window.addEventListener(event, markActive, { passive: true }));
+
+    const interval = window.setInterval(() => {
+      if (Date.now() - lastActivity < IDLE_TIMEOUT_MS) return;
+
+      window.clearInterval(interval);
+      setIsLoggedIn(false);
+      setSessionProfile(null);
+      setCurrentRole('public');
+      setActiveView('cms');
+      void AuthService.logout();
+      window.history.replaceState({}, '', '/');
+      setAuditCount((prev) => prev + 1);
+      showToast('Sesi Berakhir', 'Tidak ada aktivitas selama 30 menit. Silakan masuk kembali.', 'warning');
+    }, IDLE_CHECK_INTERVAL_MS);
+
+    return () => {
+      activityEvents.forEach((event) => window.removeEventListener(event, markActive));
+      window.clearInterval(interval);
+    };
+  }, [isLoggedIn]);
+
+  // Pemetaan role → view awal (peta bertipe di lib/AppRouter).
+  function routeForRole(role: UserRole): ActiveModuleView {
+    return ROLE_HOME[role] ?? 'dashboard';
+  }
+
+  // Guard pemilihan modul: peran portal tidak boleh membuka modul staf.
+  const selectView = (view: ActiveModuleView) => {
+    if (!canAccess(currentRole, view)) {
+      showToast('Akses Ditolak', 'Peran Anda tidak memiliki akses ke modul tersebut.', 'error');
+      setActiveView(ROLE_HOME[currentRole] ?? 'dashboard');
+      return;
+    }
+    setActiveView(view);
+  };
+
+  // URL ↔ modul aktif: deep-link, tahan refresh, dan tombol back/forward browser.
+  useEffect(() => {
+    if (!isLoggedIn || currentRole === 'public') return;
+    const target = pathForModule(activeView);
+    if (window.location.pathname !== target) window.history.replaceState({}, '', target);
+  }, [activeView, isLoggedIn, currentRole]);
+
+  useEffect(() => {
+    const onPopState = () => {
+      if (!isLoggedIn) return;
+      const view = moduleFromPath(window.location.pathname);
+      if (view && canAccess(currentRole, view)) setActiveView(view);
+    };
+    window.addEventListener('popstate', onPopState);
+    return () => window.removeEventListener('popstate', onPopState);
+  }, [isLoggedIn, currentRole]);
+
+  // Ringkasan dashboard staf: ambil dari server saat sesi staf aktif.
+  useEffect(() => {
+    if (!isLoggedIn || !isStaffRole(currentRole)) {
+      setDashboardSummary(null);
+      return;
     }
 
+    let cancelled = false;
+    setDashboardLoading(true);
+    void DashboardApiService.summary()
+      .then((summary) => {
+        if (!cancelled) setDashboardSummary(summary);
+      })
+      .catch(() => {
+        if (!cancelled) setDashboardSummary(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDashboardLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, currentRole]);
+
+  // Sukses login via API — satu-satunya jalan masuk ke dashboard/menu.
+  const handleLoginSuccess = (role: UserRole, identifier: string) => {
+    setSessionProfile({ name: identifier, role });
+    setCurrentRole(role);
+    setIsLoggedIn(true);
+    setActiveView(routeForRole(role));
+    setAuditCount((prev) => prev + 1);
+    // Ambil nama asli dari server (bukan identifier) sekali setelah login.
+    void AuthService.profile().then((profile) => {
+      if (profile) setSessionProfile(profile);
+    });
+    showToast(
+      'Login Berhasil',
+      `Tampilan disesuaikan untuk peran: ${role.toUpperCase().replace('_', ' ')}`,
+      'success'
+    );
+  };
+
+  // Preview role DEV (TopDevBar): ganti tampilan TANPA login.
+  // Tidak menyetel isLoggedIn — dashboard/menu tetap terkunci ProtectedRoute.
+  const handlePreviewRole = (role: UserRole) => {
+    setCurrentRole(role);
+    setActiveView(routeForRole(role));
     setAuditCount((prev) => prev + 1);
     showToast(
-      'Role Berganti',
-      `Tampilan disesuaikan untuk peran: ${role.toUpperCase().replace('_', ' ')}`,
+      'Preview Role (DEV)',
+      `Preview tampilan ${role.toUpperCase().replace('_', ' ')} — wajib login untuk akses data.`,
       'info'
     );
+  };
+
+  // Switch Role Handler (Auto-routes to the most relevant view for that role)
+  const handleRoleChange = (role: UserRole) => {
+    // LEGACY: dipertahankan sebagai alias preview DEV agar TopDevBar tidak rusak.
+    // Sengaja TIDAK menyetel isLoggedIn — masuk dashboard/menu hanya via handleLoginSuccess.
+    handlePreviewRole(role);
+    return;
   };
 
   // Convert SPMB Candidate to Active Student
@@ -129,7 +316,7 @@ export function App() {
       angkatan: '2026',
       parentName: candidate.parentName,
       parentPhone: candidate.parentPhone,
-      photo: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=200&auto=format&fit=crop&q=80',
+      photo: '',
       birthDate: candidate.birthDate,
       birthPlace: candidate.birthPlace,
       address: 'Jl. Merdeka No. 10, Jakarta Pusat',
@@ -137,67 +324,62 @@ export function App() {
     setStudents([newStudent, ...students]);
   };
 
-  // Get User Profile Metadata based on role
+  // Profil tampilan: nama dari server saat login; label peran sebagai fallback
+  // (mis. preview peran DEV yang tidak login). Tidak ada identitas palsu.
   const getUserProfile = () => {
-    switch (currentRole) {
-      case 'siswa':
-        return {
-          name: students[0].name,
-          roleDesc: `Siswa (${students[0].kelas})`,
-          avatar: students[0].photo,
-        };
-      case 'orang_tua':
-        return {
-          name: `Bpk. ${students[0].parentName}`,
-          roleDesc: `Orang Tua / Wali (${students[0].name})`,
-          avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=200&auto=format&fit=crop&q=80',
-        };
-      case 'guru':
-        return {
-          name: mockTeachers[0].name,
-          roleDesc: `${mockTeachers[0].title} — Guru Pengampu`,
-          avatar: mockTeachers[0].photo,
-        };
-      case 'bendahara':
-        return {
-          name: 'Ibu Endang Sulistyo, S.E.',
-          roleDesc: 'Bendahara Keuangan Sekolah',
-          avatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200&auto=format&fit=crop&q=80',
-        };
-      case 'operator':
-        return {
-          name: 'Rizky Ramadhan',
-          roleDesc: 'Operator Presensi & Kartu Siswa',
-          avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=200&auto=format&fit=crop&q=80',
-        };
-      case 'calon_siswa':
-        return {
-          name: 'Muhammad Dimas Saputra',
-          roleDesc: 'Pendaftar PPDB Online 2026',
-          avatar: 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=200&auto=format&fit=crop&q=80',
-        };
-      case 'admin_tu':
-        return {
-          name: 'Dra. Siti Aminah',
-          roleDesc: 'Kepala Tata Usaha (Admin TU)',
-          avatar: 'https://images.unsplash.com/photo-1580489944761-15a19d654956?w=200&auto=format&fit=crop&q=80',
-        };
-      case 'super_admin':
-      default:
-        return {
-          name: 'Super Administrator',
-          roleDesc: 'Tim IT & Pengembang Sistem',
-          avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=200&auto=format&fit=crop&q=80',
-        };
+    const roleLabel = currentRole.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+    const name = sessionProfile?.name?.trim() || (isLoggedIn ? 'Pengguna' : 'Belum Masuk');
+
+    if (!sessionProfile) {
+      return { name, roleDesc: `Preview Peran (DEV): ${roleLabel}`, avatar: initialsAvatar(name) };
     }
+
+    return { name, roleDesc: roleLabel, avatar: initialsAvatar(name) };
   };
 
   const userProfile = getUserProfile();
 
-  // If user is logged out and not in public site, show Auth Module
-  if (!isLoggedIn && currentRole !== 'public') {
+  // Deep-link email reset password: /reset-password?token=...&email=...
+  // Dirender standalone di atas semua alur state aplikasi.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/reset-password')) {
+    const params = new URLSearchParams(window.location.search);
     return (
-      <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between">
+      <div className="min-h-screen bg-slate-50 text-slate-800">
+        <ModuleErrorBoundary>
+          <Suspense fallback={<ModuleFallback />}>
+            <ResetPasswordModule
+              email={params.get('email') ?? ''}
+              token={params.get('token') ?? ''}
+              onShowToast={showToast}
+              onSuccess={() => {
+                window.history.replaceState({}, '', '/');
+                setCurrentRole('super_admin');
+                setIsLoggedIn(false);
+              }}
+            />
+          </Suspense>
+        </ModuleErrorBoundary>
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </div>
+    );
+  }
+
+  // Sesi dicek dulu (restore token) agar reload tidak melempar ke login bila token valid.
+  if (!sessionChecked && currentRole !== 'public') {
+    return (
+      <div className="min-h-screen bg-slate-50 text-slate-800 flex items-center justify-center p-6">
+        <div className="w-full max-w-md">
+          <ModuleFallback />
+          <p className="mt-3 text-center text-xs text-slate-500">Memeriksa sesi login…</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Auth fallback dipakai ulang oleh guard + ProtectedRoute (single source).
+  const authFallback = (
+    <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col justify-between">
+      {import.meta.env.DEV && (
         <TopDevBar
           currentRole={currentRole}
           onRoleChange={handleRoleChange}
@@ -206,39 +388,68 @@ export function App() {
           onOpenSecurityAudit={() => setIsSecurityModalOpen(true)}
           auditCount={auditCount}
         />
-        <AuthModule
-          onLoginSuccess={(role) => {
-            setCurrentRole(role);
-            setIsLoggedIn(true);
-            handleRoleChange(role);
-          }}
-          onShowToast={showToast}
-        />
-        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      )}
+      <ModuleErrorBoundary>
+        <Suspense fallback={<ModuleFallback />}>
+          <AuthModule onLoginSuccess={handleLoginSuccess} onShowToast={showToast} />
+        </Suspense>
+      </ModuleErrorBoundary>
+      <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      {import.meta.env.DEV && (
         <SecurityAuditModal
           isOpen={isSecurityModalOpen}
           onClose={() => setIsSecurityModalOpen(false)}
           activeRole={currentRole}
         />
-      </div>
+      )}
+    </div>
+  );
+
+  // If user is logged out and not in public site, show Auth Module
+  if (!isLoggedIn && currentRole !== 'public') {
+    return authFallback;
+  }
+
+  if (currentRole === 'public') {
+    return (
+      <>
+        <CmsPublicModule
+          news={MOCKS?.newsPosts ?? []}
+          schoolConfig={schoolConfig}
+          onGoToLogin={() => {
+            setCurrentRole('super_admin');
+            setIsLoggedIn(false);
+          }}
+          onGoToSpmb={() => {
+            // Wajib login dulu: arahkan ke layar login, bukan langsung ke modul SPMB.
+            setCurrentRole('calon_siswa');
+            setIsLoggedIn(false);
+            setActiveView('spmb');
+          }}
+          onShowToast={showToast}
+        />
+        <ToastContainer toasts={toasts} onDismiss={dismissToast} />
+      </>
     );
   }
 
   return (
+    <ProtectedRoute isAuthenticated={isLoggedIn} fallback={authFallback}>
     <div className="min-h-screen bg-slate-50 text-slate-800 flex flex-col">
-      {/* 1. TOP DEV BAR: ROLE SWITCHER & ENVIRONMENT BAR */}
-      <TopDevBar
-        currentRole={currentRole}
-        onRoleChange={handleRoleChange}
-        isMobileView={isMobileView}
-        onToggleMobileView={() => setIsMobileView(!isMobileView)}
-        onOpenSecurityAudit={() => setIsSecurityModalOpen(true)}
-        auditCount={auditCount}
-      />
+      {/* 1. TOP DEV BAR (DEV ONLY): role switcher tidak pernah tampil di produksi */}
+      {import.meta.env.DEV && (
+        <TopDevBar
+          currentRole={currentRole}
+          onRoleChange={handleRoleChange}
+          isMobileView={isMobileView}
+          onToggleMobileView={() => setIsMobileView(!isMobileView)}
+          onOpenSecurityAudit={() => setIsSecurityModalOpen(true)}
+          auditCount={auditCount}
+        />
+      )}
 
       {/* 2. NAVBAR: SCHOOL IDENTITY & USER STATUS */}
-      {currentRole !== 'public' && (
-        <Navbar
+      <Navbar
           currentRole={currentRole}
           currentUserName={userProfile.name}
           currentUserRoleDesc={userProfile.roleDesc}
@@ -247,24 +458,25 @@ export function App() {
           announcements={announcements}
           onLogout={() => {
             setIsLoggedIn(false);
+            setSessionProfile(null);
+            void AuthService.logout();
+            window.history.replaceState({}, '', '/');
             showToast('Logout Berhasil', 'Anda telah keluar dari sesi akun.', 'info');
           }}
-          onOpenSettings={() => setActiveView('settings')}
+          onOpenSettings={() => selectView('settings')}
           onOpenPublicSite={() => {
             setCurrentRole('public');
             setActiveView('cms');
           }}
         />
-      )}
 
       {/* 3. MAIN BODY CONTAINER */}
       <div className="flex-1 flex max-w-7xl w-full mx-auto">
         {/* Sidebar: Shown for Admin, Super Admin, Guru, Bendahara, Operator */}
-        {currentRole !== 'public' &&
-          currentRole !== 'siswa' &&
+        {currentRole !== 'siswa' &&
           currentRole !== 'orang_tua' &&
           currentRole !== 'calon_siswa' && (
-            <Sidebar activeView={activeView} onSelectView={(v) => setActiveView(v)} />
+            <Sidebar activeView={activeView} onSelectView={selectView} />
           )}
 
         {/* Content Area */}
@@ -275,9 +487,12 @@ export function App() {
             {/* RENDER ACTIVE MODULE VIEW */}
             {activeView === 'dashboard' && (
               <AdminDashboardOverview
-                onNavigate={(v) => setActiveView(v)}
-                attendanceTodayCount={attendanceRecords.length}
-                totalStudents={students.length}
+                onNavigate={selectView}
+                attendanceTodayCount={dashboardSummary?.attendance_today ?? 0}
+                totalStudents={dashboardSummary?.total_students ?? 0}
+                attendanceRate={dashboardSummary?.attendance_rate ?? null}
+                activeCbtExams={dashboardSummary?.active_cbt_exams ?? null}
+                isLoading={dashboardLoading}
               />
             )}
 
@@ -311,8 +526,8 @@ export function App() {
                 student={students[0]}
                 attendanceRecords={attendanceRecords}
                 grades={grades}
-                sppProfile={mockSppProfile}
-                schedule={mockSchedule}
+                sppProfile={MOCKS?.sppProfile}
+                schedule={MOCKS?.schedule ?? []}
                 announcements={announcements}
                 schoolConfig={schoolConfig}
                 onShowToast={showToast}
@@ -322,9 +537,9 @@ export function App() {
             {activeView === 'student' && (
               <StudentPortalModule
                 student={students[0]}
-                schedule={mockSchedule}
+                schedule={MOCKS?.schedule ?? []}
                 assignments={assignments}
-                materials={mockMaterials}
+                materials={MOCKS?.materials ?? []}
                 grades={grades}
                 schoolConfig={schoolConfig}
                 onUpdateAssignment={(updated) => {
@@ -336,18 +551,18 @@ export function App() {
             )}
 
             {activeView === 'cbt' && (
-              <CbtExamModule exams={mockCbtExams} onShowToast={showToast} />
+              <CbtExamModule exams={MOCKS?.cbtExams ?? []} onShowToast={showToast} />
             )}
 
             {activeView === 'library' && (
-              <LibraryModule books={mockLibraryBooks} onShowToast={showToast} />
+              <LibraryModule books={MOCKS?.libraryBooks ?? []} onShowToast={showToast} />
             )}
 
             {activeView === 'finance' && (
               <FinanceModule
-                sppProfile={mockSppProfile}
+                sppProfile={MOCKS?.sppProfile}
                 students={students}
-                cashTransactions={mockCashTransactions}
+                cashTransactions={MOCKS?.cashTransactions ?? []}
                 schoolConfig={schoolConfig}
                 onShowToast={showToast}
               />
@@ -355,7 +570,7 @@ export function App() {
 
             {activeView === 'spmb' && (
               <SpmbModule
-                waves={mockSpmbWaves}
+                waves={MOCKS?.spmbWaves ?? []}
                 candidates={candidates}
                 schoolConfig={schoolConfig}
                 onShowToast={showToast}
@@ -366,8 +581,8 @@ export function App() {
             {activeView === 'academic' && (
               <AcademicModule
                 students={students}
-                subjects={mockSubjects}
-                schedule={mockSchedule}
+                subjects={MOCKS?.subjects ?? []}
+                schedule={MOCKS?.schedule ?? []}
                 grades={grades}
                 announcements={announcements}
                 schoolConfig={schoolConfig}
@@ -379,7 +594,7 @@ export function App() {
 
             {activeView === 'cms' && (
               <CmsPublicModule
-                news={mockNewsPosts}
+                news={MOCKS?.newsPosts ?? []}
                 schoolConfig={schoolConfig}
                 onGoToLogin={() => {
                   setCurrentRole('super_admin');
@@ -391,6 +606,10 @@ export function App() {
                 }}
                 onShowToast={showToast}
               />
+            )}
+
+            {activeView === 'cms_admin' && (
+              <CmsAdminModule onShowToast={showToast} />
             )}
 
             {activeView === 'settings' && (
@@ -407,13 +626,16 @@ export function App() {
       {/* Global Toast Notification Container */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
 
-      {/* Security Analyst & RBAC Audit Modal */}
-      <SecurityAuditModal
-        isOpen={isSecurityModalOpen}
-        onClose={() => setIsSecurityModalOpen(false)}
-        activeRole={currentRole}
-      />
+      {/* Security Analyst & RBAC Audit Modal (DEV only) */}
+      {import.meta.env.DEV && (
+        <SecurityAuditModal
+          isOpen={isSecurityModalOpen}
+          onClose={() => setIsSecurityModalOpen(false)}
+          activeRole={currentRole}
+        />
+      )}
     </div>
+    </ProtectedRoute>
   );
 }
 
