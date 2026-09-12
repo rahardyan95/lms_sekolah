@@ -361,7 +361,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
       <div className="bg-white p-1.5 rounded-2xl border border-slate-200 shadow-xs flex items-center gap-1 overflow-x-auto">
         <button
           onClick={() => setActiveTab('presensi')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 min-w-[130px] min-h-11 py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
             activeTab === 'presensi'
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
@@ -374,7 +374,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('nilai')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 min-w-[130px] min-h-11 py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
             activeTab === 'nilai'
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
@@ -387,7 +387,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('spp')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 min-w-[130px] min-h-11 py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
             activeTab === 'spp'
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
@@ -400,7 +400,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('jadwal')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 min-w-[130px] min-h-11 py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
             activeTab === 'jadwal'
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
@@ -413,7 +413,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
 
         <button
           onClick={() => setActiveTab('kts')}
-          className={`flex-1 min-w-[130px] py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
+          className={`flex-1 min-w-[130px] min-h-11 py-2.5 px-3 text-xs font-bold rounded-xl transition-all flex items-center justify-center gap-2 ${
             activeTab === 'kts'
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'

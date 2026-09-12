@@ -337,7 +337,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
           </p>
           <button
             onClick={onOpenCbtExam}
-            className="px-4 py-2 bg-emerald-500 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 text-xs"
+            className="min-h-11 px-4 py-2 bg-emerald-500 hover:bg-emerald-800 text-white font-bold rounded-xl shadow-md transition-all flex items-center gap-1.5 text-xs"
             data-testid="btn-open-cbt-room"
           >
             <Clock className="w-4 h-4" />
@@ -641,7 +641,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
 
           <button
             onClick={() => setIsKtsModalOpen(true)}
-            className="w-full py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center gap-2"
+            className="w-full min-h-11 py-2.5 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors flex items-center justify-center gap-2"
           >
             <QrCode className="w-4 h-4" />
             <span>Lihat Kartu Tanda Pelajar (KTS) Digital</span>
@@ -657,7 +657,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
         <div className="flex items-center justify-around max-w-md mx-auto">
           <button
             onClick={() => setActiveBottomNav('beranda')}
-            className={`flex flex-col items-center py-1 px-2 rounded-xl transition-colors ${
+            className={`flex flex-col items-center justify-center min-h-11 min-w-11 py-1 px-2 rounded-xl transition-colors ${
               activeBottomNav === 'beranda' ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -667,7 +667,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
 
           <button
             onClick={() => setActiveBottomNav('jadwal')}
-            className={`flex flex-col items-center py-1 px-2 rounded-xl transition-colors ${
+            className={`flex flex-col items-center justify-center min-h-11 min-w-11 py-1 px-2 rounded-xl transition-colors ${
               activeBottomNav === 'jadwal' ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -677,7 +677,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
 
           <button
             onClick={() => setActiveBottomNav('tugas')}
-            className={`flex flex-col items-center py-1 px-2 rounded-xl transition-colors ${
+            className={`flex flex-col items-center justify-center min-h-11 min-w-11 py-1 px-2 rounded-xl transition-colors ${
               activeBottomNav === 'tugas' ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -687,7 +687,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
 
           <button
             onClick={() => setActiveBottomNav('nilai')}
-            className={`flex flex-col items-center py-1 px-2 rounded-xl transition-colors ${
+            className={`flex flex-col items-center justify-center min-h-11 min-w-11 py-1 px-2 rounded-xl transition-colors ${
               activeBottomNav === 'nilai' ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
           >
@@ -697,7 +697,7 @@ export const StudentPortalModule: React.FC<StudentPortalModuleProps> = ({
 
           <button
             onClick={() => setActiveBottomNav('profil')}
-            className={`flex flex-col items-center py-1 px-2 rounded-xl transition-colors ${
+            className={`flex flex-col items-center justify-center min-h-11 min-w-11 py-1 px-2 rounded-xl transition-colors ${
               activeBottomNav === 'profil' ? 'text-teal-700 font-bold' : 'text-slate-500 hover:text-slate-800'
             }`}
           >

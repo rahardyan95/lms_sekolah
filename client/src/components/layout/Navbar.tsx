@@ -86,7 +86,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setShowNotifications(!showNotifications);
                 setShowUserMenu(false);
               }}
-              className="p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 relative transition-colors"
+              className="min-h-11 min-w-11 inline-flex items-center justify-center p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 relative transition-colors"
               aria-label="Pemberitahuan"
               data-testid="btn-notification-bell"
             >
@@ -120,7 +120,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                 setShowUserMenu(!showUserMenu);
                 setShowNotifications(false);
               }}
-              className="flex items-center gap-2.5 pl-2 pr-3 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors text-left"
+              className="flex items-center gap-2.5 pl-2 pr-3 min-h-11 py-1.5 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors text-left"
               data-testid="user-profile-menu-btn"
             >
               <img

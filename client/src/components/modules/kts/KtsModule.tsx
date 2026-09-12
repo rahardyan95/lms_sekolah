@@ -399,7 +399,7 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setIsPreviewModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+            className="min-h-11 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
             data-testid="btn-preview-kts"
           >
             <Eye className="w-4 h-4 text-slate-600" />
@@ -408,7 +408,7 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
           <button
             onClick={handleVerify}
             disabled={!serverQr || verifyState === 'checking'}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors disabled:opacity-50"
+            className="min-h-11 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-teal-800 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-xl transition-colors disabled:opacity-50"
             data-testid="btn-verify-kts"
             title="Verifikasi QR via POST /kts/verify"
           >
@@ -417,7 +417,7 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
           </button>
           <button
             onClick={handlePrint}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all shadow-sm shadow-teal-600/20"
+            className="min-h-11 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl transition-all shadow-sm shadow-teal-600/20"
             data-testid="btn-print-kts"
           >
             <Printer className="w-4 h-4" />
@@ -439,7 +439,7 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
                 'info',
               );
             }}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
+            className="min-h-11 inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors"
             data-testid="btn-kts-download-pdf"
           >
             <Download className="w-4 h-4 text-slate-600" />

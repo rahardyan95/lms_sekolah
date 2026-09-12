@@ -446,7 +446,32 @@ cd client && npx tsc -b && npm test && npx playwright test        # 0 error · 2
 docker compose exec backend php artisan migrate --force           # migrasi enkripsi phone
 ```
 
-### 15.6 Verifikasi lintas-perspektif (fresh)
+### 15.7 Sapu layar mobile pada bundle produksi — 13 September 2026
+
+Audit terukur di `dist` hasil build (viewport 375/390/768, peran guest/siswa/orang_tua/operator/bendahara/super_admin) dengan metrik: overflow dokumen, elemen melewati viewport di luar kontainer scroll, teks terklip (bukan `truncate` desain), target sentuh <44px, dan konten tertutup bottom-nav.
+
+**Hasil:** nol overflow dokumen, nol elemen melewati viewport, nol teks terklip nyata di seluruh modul (landing, login, portal siswa 5 tab, portal orang tua 5 tab, presensi 3 subtab, KTS, keuangan 5 tab, dashboard, akademik, CBT, perpustakaan, SPMB, WhatsApp, pengaturan, CMS admin). Konten terakhir portal siswa tampil **87px di atas** bottom-nav (padding `pb-20` bekerja); dua kartu landing yang terklip isinya murni dekoratif (blob & SVG di dalam `overflow-hidden`).
+
+**Defect diperbaiki:** overflow tab keuangan di 375px (§15.3 #26) dan target sentuh <44px pada kontrol utama:
+
+| Kontrol | Sebelum | Sesudah |
+|---|---|---|
+| Tab layar login (4) | 32px | 44px |
+| Bell notifikasi | 32×32 | 44×44 |
+| Menu profil | 42px | 44px |
+| CTA "Masuk Ruang Ujian CBT" (siswa) | 32px | 44px |
+| CTA "Lihat KTS Digital" (siswa) | 36px | 44px |
+| Bottom-nav portal siswa (5) | ~40px | 45px |
+| Tombol aksi KTS (pratinjau/verifikasi/cetak/unduh) | 32–34px | 44px |
+| Submit presensi (barcode & manual) | 32px | 44px |
+| Tab portal orang tua (5) | 36px | 52px |
+
+Baris daftar padat (token QR KTS, tabel data) sengaja tidak dinaikkan — targetnya masih ≥24px (WCAG 2.5.8 AA) dan menaikkannya akan mengorbankan kepadatan tabel.
+
+Catatan verifikasi: pengukuran harus memakai dokumen segar (`page.setCacheEnabled(false)`) — pembacaan pertama saya sempat menampilkan DOM basi setelah rebuild image dan tampak "perbaikan tidak berlaku".
+
+---
+
 
 | Perspektif | Pemeriksaan | Hasil |
 |---|---|---|

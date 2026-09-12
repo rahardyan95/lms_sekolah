@@ -526,7 +526,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
                 />
                 <button
                   type="submit"
-                  className="px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
+                  className="min-h-11 px-4 py-2 bg-teal-700 hover:bg-teal-800 text-white rounded-xl text-xs font-bold shadow-xs transition-colors"
                   data-testid="btn-submit-barcode"
                 >
                   Proses
@@ -743,7 +743,7 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
                 <button
                   type="submit"
                   disabled={manualSubmitting}
-                  className="px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
+                  className="min-h-11 px-4 py-2 text-xs font-bold text-white bg-teal-700 hover:bg-teal-800 rounded-xl shadow-xs disabled:opacity-60 disabled:cursor-not-allowed"
                   data-testid="btn-submit-manual"
                 >
                   {manualSubmitting ? 'Menyimpan...' : 'Simpan Entri Manual'}
