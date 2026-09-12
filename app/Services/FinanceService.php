@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\AuditLog;
+use App\Models\BankAccount;
 use App\Models\CashTransaction;
 use App\Models\Invoice;
 use App\Models\Payment;
@@ -118,7 +119,7 @@ class FinanceService
     /**
      * Arus kas operasional. Nominal selalu positif; arah ditentukan `type`.
      */
-    public function recordCash(string $type, string $category, int $amount, string $at, ?string $proof, User $pic): CashTransaction
+    public function recordCash(string $type, string $category, int $amount, string $at, ?string $proof, User $pic, ?string $bankAccountId = null): CashTransaction
     {
         if (! in_array($type, CashTransaction::TYPES, true)) {
             throw new HttpException(422, 'Jenis transaksi kas tidak dikenal.');
@@ -130,6 +131,7 @@ class FinanceService
 
         return CashTransaction::create([
             'type' => $type,
+            'bank_account_id' => $bankAccountId,
             'category' => $category,
             'amount' => $amount,
             'transaction_at' => $at,
@@ -243,9 +245,62 @@ class FinanceService
 
         $opening = $openingIncome - $openingExpense;
 
+        // Pecahan per kanal dana (FRD §12): pembayaran tunai + kas tanpa rekening
+        // = 'Kas Tunai'; sisanya melekat pada rekening masing-masing.
+        $byAccount = [[
+            'id' => null,
+            'label' => 'Kas Tunai',
+            ...$this->channelFigures(null, $start, $end),
+        ]];
+
+        foreach (BankAccount::query()->orderBy('bank')->get() as $account) {
+            $byAccount[] = [
+                'id' => $account->id,
+                'label' => trim($account->bank.' '.$account->account_masked),
+                ...$this->channelFigures($account->id, $start, $end),
+            ];
+        }
+
         return [
             'from' => $from,
             'to' => $to,
+            'income' => $income,
+            'expense' => $expense,
+            'opening' => $opening,
+            'closing' => $opening + $income - $expense,
+            'by_account' => $byAccount,
+        ];
+    }
+
+    /**
+     * Angka satu kanal dana untuk periode + saldo awalnya.
+     * `$accountId === null` berarti kas tunai (transaksi tanpa rekening,
+     * dan pembayaran metode 'tunai').
+     *
+     * @return array{income: int, expense: int, opening: int, closing: int}
+     */
+    private function channelFigures(?string $accountId, string $start, string $end): array
+    {
+        $isCash = $accountId === null;
+
+        $payments = fn () => Payment::query()
+            ->when($isCash, fn ($q) => $q->where('method', 'tunai'), fn ($q) => $q->where('method', '!=', 'tunai'))
+            ->when(! $isCash, fn ($q) => $q->whereNotNull('method'));
+
+        $cash = fn () => CashTransaction::query()
+            ->when($isCash, fn ($q) => $q->whereNull('bank_account_id'), fn ($q) => $q->where('bank_account_id', $accountId));
+
+        $income = (int) $payments()->whereBetween('paid_at', [$start, $end])->sum('amount')
+            + (int) $cash()->where('type', CashTransaction::TYPE_INCOME)->whereBetween('transaction_at', [$start, $end])->sum('amount');
+
+        $expense = (int) $cash()->where('type', CashTransaction::TYPE_EXPENSE)
+            ->whereBetween('transaction_at', [$start, $end])->sum('amount');
+
+        $opening = (int) $payments()->where('paid_at', '<', $start)->sum('amount')
+            + (int) $cash()->where('type', CashTransaction::TYPE_INCOME)->where('transaction_at', '<', $start)->sum('amount')
+            - (int) $cash()->where('type', CashTransaction::TYPE_EXPENSE)->where('transaction_at', '<', $start)->sum('amount');
+
+        return [
             'income' => $income,
             'expense' => $expense,
             'opening' => $opening,

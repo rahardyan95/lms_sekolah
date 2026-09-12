@@ -53,6 +53,48 @@ class AttendanceReportService
     }
 
     /**
+     * Rekap per siswa untuk laporan PDF: jumlah tiap status + persentase
+     * kehadiran (hadir+terlambat dibagi seluruh catatan siswa tersebut).
+     * Memakai `lazy()` agar rentang panjang tidak menahan seluruh baris di memori.
+     *
+     * @return array<int, array{nisn: string, name: string, hadir: int, terlambat: int, sakit: int, izin: int, alpa: int, percentage: float}>
+     */
+    public function reportRows(array $filters): array
+    {
+        $rows = [];
+
+        foreach ($this->query($filters)->lazy(500) as $attendance) {
+            $student = $attendance->student;
+            $key = (string) ($student?->id ?? 'unknown');
+
+            $rows[$key] ??= [
+                'nisn' => (string) ($student?->nisn ?? ''),
+                'name' => (string) ($student?->name ?? ''),
+                'hadir' => 0,
+                'terlambat' => 0,
+                'sakit' => 0,
+                'izin' => 0,
+                'alpa' => 0,
+            ];
+
+            $status = $attendance->status?->value;
+
+            if ($status !== null && array_key_exists($status, $rows[$key])) {
+                $rows[$key][$status]++;
+            }
+        }
+
+        return array_values(array_map(function (array $row): array {
+            $total = $row['hadir'] + $row['terlambat'] + $row['sakit'] + $row['izin'] + $row['alpa'];
+            $row['percentage'] = $total > 0
+                ? round(($row['hadir'] + $row['terlambat']) / $total * 100, 1)
+                : 0.0;
+
+            return $row;
+        }, $rows));
+    }
+
+    /**
      * Cegah CSV formula injection: nilai yang dimulai karakter berbahaya
      * bagi spreadsheet (=, +, -, @, tab, CR) diberi prefix apostrof.
      */

@@ -123,6 +123,9 @@ test('Bank: nomor rekening tampil ter-mask, tidak pernah utuh', async ({ page, c
   await page.getByTestId('btn-save-bank').click();
 
   await expect(page.getByText('Rekening Disimpan').first()).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText('****8888').first()).toBeVisible({ timeout: 20000 });
+  // Nomor termask tampil di DAFTAR rekening (select kanal kas juga memuat teks
+  // serupa — scope ke daftar agar asersi tidak ambigu).
+  const bankList = page.getByTestId('bank-account-list');
+  await expect(bankList.getByText('****8888').first()).toBeVisible({ timeout: 20000 });
   await expect(page.getByText('5555666677778888')).toHaveCount(0);
 });

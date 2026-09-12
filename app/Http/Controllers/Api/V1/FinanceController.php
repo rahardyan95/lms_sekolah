@@ -210,6 +210,7 @@ class FinanceController extends Controller
             'amount' => ['required', 'integer', 'min:1'],
             'transaction_at' => ['required', 'date'],
             'proof' => ['nullable', 'string', 'max:255'],
+            'bank_account_id' => ['nullable', 'string', 'exists:bank_accounts,id'],
         ]);
 
         $transaction = $this->service->recordCash(
@@ -219,6 +220,7 @@ class FinanceController extends Controller
             $data['transaction_at'],
             $data['proof'] ?? null,
             $request->user(),
+            $data['bank_account_id'] ?? null,
         );
 
         return $this->envelope($request, $transaction, 201);

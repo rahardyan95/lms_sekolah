@@ -7,9 +7,11 @@ use App\Models\KtsTemplate;
 use App\Models\KtsToken;
 use App\Models\Student;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
@@ -112,6 +114,35 @@ class KtsService
     public function revoke(KtsToken $token): void
     {
         $token->update(['revoked_at' => now()]);
+    }
+
+    /**
+     * Simpan foto kartu siswa (mengganti berkas lama agar disk tidak menumpuk),
+     * catat path di `students.photo_path`, dan tulis audit.
+     */
+    public function storePhoto(Student $student, UploadedFile $file): string
+    {
+        $previous = $student->photo_path;
+        $path = $file->store('kts/photos', 'local');
+
+        $student->update(['photo_path' => $path]);
+
+        if ($previous && $previous !== $path) {
+            Storage::disk('local')->delete($previous);
+        }
+
+        AuditLog::create([
+            'actor_id' => request()->user()?->id,
+            'actor_role' => request()->user()?->getRoleNames()->first(),
+            'action' => 'KTS_PHOTO_UPLOADED',
+            'entity' => 'students',
+            'entity_id' => $student->id,
+            'after' => ['photo_path' => $path],
+            'ip_address' => request()->ip(),
+            'request_id' => request()->header('X-Request-ID'),
+        ]);
+
+        return $path;
     }
 
     /**

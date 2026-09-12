@@ -1,0 +1,85 @@
+# Example Fida policy (version 1).
+#
+# Fida is redaction-first: detected secrets are stripped from gateway file
+# reads and command output no matter what this file says. Policy is a thin
+# layer on top of that guarantee.
+#
+# The default decision is ALLOW. You only write rules for the few things you
+# want to DENY (or to allow explicitly inside a locked-down profile). Genuinely
+# dangerous actions are already refused by Fida's built-in hard-deny set and do
+# NOT need to be listed here:
+#
+#   * commands  — rm -rf /, piping a remote script to a shell, reverse shells,
+#                 dd to a device, mkfs, fork bombs, disabling Fida/SIP, …
+#   * files     — writes to .env*, private keys, .ssh, cloud credentials,
+#                 shell rc files, and other persistence/secret targets
+#   * network   — cloud-metadata endpoints and private/link-local/internal ranges
+#
+# See /docs/concepts/security-model for the full built-in hard-deny set.
+version: 1
+default_decision: allow
+
+# Named profiles, selected with `--profile <name>`.
+profiles:
+  # Audit everything, block nothing — a safe first run.
+  observe:
+    mode: observe
+  # Lock the agent down in CI: deny by default, then allow only what you list.
+  ci-readonly:
+    default_decision: deny
+    commands:
+      allow:
+        - prefix: cargo test
+        - prefix: cargo build
+
+commands:
+  # Default allow covers routine commands. Add deny rules for project-specific
+  # commands you never want an agent to run unattended.
+  deny:
+    - prefix: terraform apply
+      reason: infrastructure changes must go through a human
+    - prefix: kubectl delete
+      reason: destructive cluster operation
+    - binary: shutdown
+      reason: never power off the host
+
+files:
+  # Reads are allowed and redacted, so read rules are rarely needed.
+  write:
+    # The built-in hard-deny already blocks writes to secrets and credentials.
+    # List extra project paths you want protected from agent edits.
+    deny:
+      - "migrations/**"
+      - "**/*.lock"
+
+network:
+  # Default allow lets the agent reach public registries (npm, PyPI, crates.io).
+  # Built-in hard-deny already blocks cloud metadata and private ranges. Add
+  # domains you want blocked outright:
+  deny:
+    - domain: "*.internal.example.com"
+      reason: internal services are off-limits to the agent
+
+secrets:
+  # Redaction is always on; these are optional custom detectors for in-house
+  # credential formats the built-in catalog does not recognize.
+  patterns:
+    - name: private_key
+      regex: "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+    - name: acme_internal_token
+      regex: "acme_[A-Za-z0-9]{32}"
+
+mcp:
+  # Gate MCP tool calls by dotted tool name.
+  tools:
+    deny:
+      - pattern: "shell.*"
+        reason: route shell through fida_shell so output is redacted
+      - pattern: "secrets.*"
+        reason: direct secret access is blocked
+
+audit:
+  path: .fida/sessions
+  format: jsonl
+  redact_stdout: true
+  redact_stderr: true

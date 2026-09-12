@@ -18,6 +18,7 @@ import {
   Check,
   UserCheck,
   Download,
+  FileText,
 } from 'lucide-react';
 import { Badge } from '../../common/Badge';
 import { Modal } from '../../common/Modal';
@@ -858,6 +859,25 @@ export const AttendanceModule: React.FC<AttendanceModuleProps> = ({
             >
               <Download className="w-3.5 h-3.5" />
               Ekspor CSV
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                if (!TokenStorage.hasSession()) {
+                  onShowToast('Ekspor PDF', 'Mode offline — ekspor butuh koneksi ke server.', 'error');
+                  return;
+                }
+                // Rekap per siswa (server membatasi rentang maks 92 hari).
+                void AttendanceApiService.exportPdf(filterDate, rekapTo)
+                  .then(() => onShowToast('Ekspor Selesai', 'Berkas PDF rekap presensi diunduh.', 'success'))
+                  .catch(() => onShowToast('Ekspor Gagal', 'Server menolak ekspor (cek rentang tanggal).', 'error'));
+              }}
+              className="px-3.5 py-1.5 text-xs rounded-xl border border-slate-200 bg-white hover:bg-slate-50 font-bold text-slate-700 flex items-center gap-1.5"
+              data-testid="btn-export-pdf"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              Ekspor PDF
             </button>
           </div>
 

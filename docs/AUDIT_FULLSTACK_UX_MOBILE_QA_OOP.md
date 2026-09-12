@@ -492,3 +492,49 @@ Catatan operasional: verifikasi bundle produksi memerlukan `page.setBypassCSP(tr
 2. **Durasi CBT vs jendela ujian** — tentukan apakah peserta yang mulai di menit terakhir dipotong waktunya (`min(start+duration, time_end)`).
 3. **E2E jalur produksi** — tambahkan satu job CI yang menjalankan smoke test terhadap `dist` hasil build (kelas bug "mock hilang" hanya tertangkap di sana).
 4. **Pemilih siswa eksplisit di panel keuangan** — saat ini memakai konteks "siswa demo" (siswa pertama katalog server).
+
+---
+
+## 17. Penyelesaian Gap Web & Mobile — 13 September 2026
+
+Penutupan gap yang masih terbuka dari §12.4, perbaikan paritas mobile, dan perluasan otomasi. Diverifikasi dengan suite backend/frontend/E2E dan bundle produksi.
+
+### 17.1 Gap fitur yang ditutup
+
+| Gap | Implementasi | Bukti |
+|---|---|---|
+| **PDF laporan presensi** (view ada, endpoint tidak) | `GET /api/v1/attendance/reports/pdf` (rekap per siswa: hadir/terlambat/sakit/izin/alpa + %), `AttendanceReportService::reportRows()`, otorisasi & batas 92 hari identik dengan CSV; tombol **Ekspor PDF** di modul presensi | `tests/Feature/AttendanceReportPdfTest.php` (3 test: `%PDF-`, 403 portal, 422 rentang) + tombol `btn-export-pdf` |
+| **Foto KTS** (kartu selalu placeholder) | `POST /kts/students/{student}/photo` (jpg/png ≤2 MB, ganti berkas lama + audit `KTS_PHOTO_UPLOADED`), `GET /kts/students/{student}/photo` (signed 15 menit), `Student::photo_data_uri` untuk DomPDF, panel unggah + pratinjau di modul KTS | `tests/Feature/KtsPhotoTest.php` (6 test, termasuk IDOR & signed) |
+| **Laporan kas belum pisah kas vs bank** | Kolom `cash_transactions.bank_account_id` (ULID FK), `cashReport()` mengembalikan `by_account` (tiap rekening + `Kas Tunai`), pemilih **Kanal Dana** di form kas, tabel rincian per kanal di tab Laporan | `tests/Feature/FinanceCashSplitTest.php` (3 test, termasuk invariant jumlah kanal == agregat) |
+| **UI penyesuaian tagihan** | Tombol **Sesuaikan** per tagihan (nominal boleh negatif + alasan wajib) → `POST /finance/invoices/{invoice}/adjust`; baris lama tidak diubah | E2E mobile keuangan + `PentestRound2Test` |
+| **PWA** (NFR-010, P1) | `manifest.webmanifest` + service worker shell read-only (aset statis & index; **API tidak pernah di-cache** sesuai DEC-005) + registrasi khusus produksi | bundle produksi menyajikan `/manifest.webmanifest` & `/sw.js` (200) |
+
+### 17.2 Bug ditemukan & diperbaiki pada putaran ini
+
+1. **P1 paritas mobile — staf tidak bisa berpindah modul di <1024px.** `Sidebar` memakai `hidden lg:flex` tanpa pengganti; pemeriksaan DOM menunjukkan seluruh `sidebar-menu-*` ada tetapi tidak terlihat, sehingga tombol modul hanya bisa "diklik" via JS — itulah sebabnya sapu otomatis sebelumnya lolos tanpa terdeteksi. Perbaikan: hamburger `btn-open-nav` (khusus <lg) + drawer `mobile-nav-drawer` berisi `nav-drawer-menu-*` (15 modul, tiap item ≥44px), menutup otomatis setelah memilih modul dan bereaksi ke Escape. Bukti: verifikasi browser + E2E mobile (navigasi KTS lewat drawer).
+2. **Migrasi gagal di Postgres** — `foreignId(bank_account_id) → bank_accounts.id` tipe mismatch (entitas domain memakai ULID). Hanya tertangkap saat `migrate` dijalankan di Postgres; sqlite test tidak menegakkan tipe FK. Diperbaiki dengan `foreignUlid`.
+3. **GD tanpa JPEG di image CLI** — `imagejpeg` tidak tersedia (hanya libpng dipasang), sehingga `UploadedFile::fake()->image('x.jpg')` gagal. Fitur unggah tidak terdampak (berkas disimpan apa adanya); test disesuaikan memakai PNG dan keterbatasan ini dicatat.
+
+### 17.3 Otomasi & pengujian yang diperluas
+
+- **Backend:** 199 → **207 test (898 assertions)** dengan tiga suite fitur baru + `PentestRound2Test` (8 test: auth endpoint baru, guru dilarang unggah foto/unduh kartu siswa lain, nama berkas tak bisa keluar direktori (`../`), batas 2 MB, peran portal dilarang laporan kas & penyesuaian, mass assignment `recorded_by`/`pic`/`id` diabaikan, envelope konsisten).
+- **E2E:** `playwright.config.ts` kini punya tiga project — `desktop`, `mobile-375` (iPhone SE), `mobile-390` (Pixel 5). `mobile.spec.ts` menguji landing tanpa overflow, navigasi drawer staf, portal siswa 5 tab + tulis presensi manual + unggah foto KTS, portal orang tua 5 tab, keuangan mobile (tab strip discroll + penyesuaian tagihan), plus asersi target sentuh ≥44px dan nol overflow horizontal per layar. `prod-smoke.spec.ts` menjalankan smoke terhadap bundle produksi (aktif bila `E2E_BASE_URL` diisi) dan menegaskan tidak ada artefak DEV di sana.
+
+### 17.4 Paritas web ↔ mobile
+
+Diperiksa dengan grep terarah (`hidden lg:`/`hidden md:`/`hidden sm:`, aksi `group-hover`, tabel tanpa `overflow-x-auto`) dan pengukuran DOM di kedua viewport:
+- Satu bug nyata (navigasi staf, §17.2 #1) — diperbaiki.
+- Sisa `hidden *:` bersifat kosmetik (badge akreditasi <sm, nama pengguna <md) atau punya padanan (menu profil memuat akses situs publik).
+- Tabel besar berada di kontainer `overflow-x-auto` dengan `role="region"`/`tabIndex`, dapat discroll tanpa melebarkan dokumen.
+
+### 17.5 Temuan dari perluasan otomasi (dan perbaikannya)
+
+| Temuan | Dampak | Perbaikan |
+|---|---|---|
+| Device `iPhone SE` Playwright memakai **WebKit** — tidak terpasang di image (hanya Chromium) | project mobile-375 gagal total | project mobile memakai `browserName: 'chromium'` dengan metrik 375/667 eksplisit |
+| **Axe critical `label`** pada input baru (foto KTS, select kanal dana, alasan penyesuaian) | gate a11y E2E merah | `<label htmlFor>` + `id` untuk berkas & select, `aria-label` untuk input alasan |
+| Testid tab KTS portal orang tua tidak konsisten (`tab-parent-kts` vs `parent-tab-*`) | spec mobile gagal menemukan tab | diseragamkan menjadi `parent-tab-kts` (tidak ada referensi lain) |
+| Helper login E2E tidak sadar viewport mobile (CTA "Masuk portal" hanya di dalam menu landing saat <sm) | spec mobile timeout pada login | helper membuka menu landing lebih dulu; langkah dilewati bila modul auth sudah tampil |
+| Uji lintas peran lewat logout+landing rapuh (sesi bisa kembali dari restore) | spec portal siswa flaky | bagian operator memakai **konteks browser baru** (sesi bersih) |
+| Input unggah foto disabled sampai id siswa server ter-resolve | unggah tidak terjadi bila terburu-buru | spec menunggu `toBeEnabled()` sebelum `setInputFiles` (kontrak UI yang sama) |
+| `prod-smoke` gagal terhadap API HTTP lokal karena CSP produksi (`connect-src 'self' https:`) | smoke produksi merah padahal bundle benar | harness menghapus header CSP **hanya** saat `E2E_BASE_URL` ber-HTTP (deployment nyata memakai HTTPS) |

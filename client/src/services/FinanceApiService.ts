@@ -121,6 +121,8 @@ export class FinanceApiService {
     amount: number;
     transaction_at: string;
     proof?: string;
+    /** Kanal dana: rekening bank; kosong = kas tunai. */
+    bank_account_id?: string | null;
   }): Promise<ServerCashTransaction> {
     const res = await api.post('/finance/cash', input);
     return unwrap<ServerCashTransaction>(res);
@@ -157,4 +159,13 @@ export interface ServerCashReport {
   expense: number;
   opening: number;
   closing: number;
+  /** Pecahan per kanal dana: rekening bank + 'Kas Tunai' (id null). */
+  by_account?: Array<{
+    id: string | null;
+    label: string;
+    income: number;
+    expense: number;
+    opening: number;
+    closing: number;
+  }>;
 }

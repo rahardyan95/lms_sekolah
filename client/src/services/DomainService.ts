@@ -115,6 +115,23 @@ export class AttendanceService {
     URL.revokeObjectURL(url);
   }
 
+  /**
+   * Ekspor rekap presensi sebagai PDF (per siswa) — pelengkap CSV.
+   * Server membatasi rentang maks 92 hari.
+   */
+  static async exportPdf(from: string, to: string): Promise<void> {
+    const res = await api.get('/attendance/reports/pdf', {
+      params: { from, to },
+      responseType: 'blob',
+    });
+    const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `presensi-${from}_${to}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   /** Entri manual (fallback): wajib alasan; server menulis audit & menolak duplikat. */
   static async manual(
     nisn: string,

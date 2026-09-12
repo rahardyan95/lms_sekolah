@@ -1,0 +1,15 @@
+---
+title: Comparisons
+description: How Fida fits beside scanners and agent tooling.
+---
+
+Fida keeps raw secret values out of live AI-agent context. It complements, rather than replaces, the tools around it.
+
+| Tool type | Primary job | Where it acts |
+| --- | --- | --- |
+| Fida | Redact secrets before an agent receives content | Agent file reads and command output |
+| Secret scanners | Find credentials in source, commits, and history | CI, pre-commit, repository history |
+| OS sandbox | Constrain process capabilities | Operating-system boundary |
+| Context tools | Reduce or organize agent context | Prompt and output management |
+
+Use a dedicated scanner such as gitleaks, GitGuardian, or trufflehog to find and remediate secrets in history. Use Fida to stop the raw values that remain on disk from reaching an AI coding agent during day-to-day work.

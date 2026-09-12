@@ -1,0 +1,27 @@
+{
+  "name": "SIAKAD & LMS Sekolah Terpadu — SMK Negeri 1 Jakarta",
+  "short_name": "SIAKAD SMKN1",
+  "description": "Portal akademik, LMS, presensi, dan layanan sekolah SMK Negeri 1 Jakarta.",
+  "lang": "id-ID",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f8fafc",
+  "theme_color": "#17324d",
+  "icons": [
+    {
+      "src": "/icons.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["education", "productivity"]
+}

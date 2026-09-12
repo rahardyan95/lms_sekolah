@@ -418,7 +418,7 @@ export const ParentPortalModule: React.FC<ParentPortalModuleProps> = ({
               ? 'bg-teal-800 text-white shadow-xs'
               : 'text-slate-700 hover:text-slate-900 hover:bg-slate-50'
           }`}
-          data-testid="tab-parent-kts"
+          data-testid="parent-tab-kts"
         >
           <QrCode className="w-4 h-4" />
           <span>5. KTS & Kontak</span>

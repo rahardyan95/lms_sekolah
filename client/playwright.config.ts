@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
@@ -17,4 +17,30 @@ export default defineConfig({
   webServer: process.env.E2E_BASE_URL
     ? undefined
     : { command: 'npm run dev', port: 5173, reuseExistingServer: true },
+  projects: [
+    {
+      name: 'desktop',
+      testIgnore: ['mobile.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    // Matriks mobile: satu 375 (iPhone SE metrics) dan satu Pixel 5 (393) —
+    // dua titik yang dipakai audit responsif. Keduanya memakai Chromium:
+    // hanya browser itu yang terpasang di image CI/dev (WebKit tidak ada).
+    {
+      name: 'mobile-375',
+      testMatch: /mobile\.spec\.ts/,
+      use: {
+        browserName: 'chromium',
+        viewport: { width: 375, height: 667 },
+        isMobile: true,
+        hasTouch: true,
+        deviceScaleFactor: 2,
+      },
+    },
+    {
+      name: 'mobile-390',
+      testMatch: /mobile\.spec\.ts/,
+      use: { ...devices['Pixel 5'] },
+    },
+  ],
 });

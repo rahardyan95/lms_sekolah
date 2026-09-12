@@ -102,6 +102,18 @@ export class KtsApiService {
     await api.post(`/kts/tokens/${tokenId}/revoke`);
   }
 
+  /** Unggah/ganti foto siswa (jpg/png maks 2 MB) untuk kartu PDF & pratinjau. */
+  static async uploadPhoto(studentId: string, file: File): Promise<{ photo_path: string; photo_url: string | null }> {
+    const form = new FormData();
+    form.append('photo', file);
+
+    const res = await api.post(`/kts/students/${studentId}/photo`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+
+    return res.data.data as { photo_path: string; photo_url: string | null };
+  }
+
   /** URL kartu KTS (unduh PDF — cookie sesi ikut terkirim). */
   static cardUrl(studentId: string): string {
     return `${API_BASE}/kts/students/${studentId}/card`;

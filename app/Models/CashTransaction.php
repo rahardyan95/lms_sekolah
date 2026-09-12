@@ -19,7 +19,7 @@ class CashTransaction extends Model
     public const TYPES = [self::TYPE_INCOME, self::TYPE_EXPENSE];
 
     protected $fillable = [
-        'type', 'category', 'amount', 'transaction_at', 'proof', 'pic', 'recorded_by',
+        'type', 'bank_account_id', 'category', 'amount', 'transaction_at', 'proof', 'pic', 'recorded_by',
     ];
 
     protected $casts = ['amount' => 'integer', 'transaction_at' => 'datetime'];
@@ -27,5 +27,11 @@ class CashTransaction extends Model
     public function recorder(): BelongsTo
     {
         return $this->belongsTo(User::class, 'recorded_by');
+    }
+
+    /** Rekening bank kanal dana; NULL berarti kas tunai. */
+    public function bankAccount(): BelongsTo
+    {
+        return $this->belongsTo(BankAccount::class);
     }
 }

@@ -1,0 +1,39 @@
+---
+title: CLI Reference
+description: The secret-leak-prevention commands Fida exposes.
+---
+
+## Setup and coverage
+
+```bash
+fida                              # protect every detected agent (or, once installed, update)
+fida on [agent]                   # protect one agent, or all detected agents
+fida off [agent]                  # remove protection from one agent, or all of them
+fida status                       # coverage + how many secrets have been protected
+fida uninstall                    # remove Fida entirely (agents, config, binary)
+```
+
+## Scan secret exposure
+
+```bash
+fida scan                         # find secret risk and raw-model exposure
+fida scan --path ./service        # scan another directory
+fida scan --json                  # emit one JSON document
+fida scan --fail-on high          # fail CI on high risk
+fida scan --include-ignored       # include ordinary ignored files
+fida scan --exclude vendor        # prune an extra directory subtree
+```
+
+`fida scan` never prints a secret value, its length, or a fragment. Its important output is `raw_secret_exposure`: whether a detected agent could receive an unredacted value.
+
+## Gateway
+
+```bash
+fida mcp serve
+fida mcp serve --workspace /path/to/repo
+fida mcp serve --read-root /path/to/attachments
+```
+
+The gateway serves `fida_read` and `fida_shell`: their returned file content and captured command output are redacted before an agent receives them.
+
+`--read-root` may be repeated to let `fida_read` handle trusted, user-provided files outside the repo, such as attachment directories. You can also provide roots through `FIDA_READ_ROOTS`, using the operating system's path-list separator. Command working directories remain confined to the workspace.

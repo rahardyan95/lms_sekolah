@@ -95,6 +95,9 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
   const [qrModalSvg, setQrModalSvg] = useState('');
   const [qrModalState, setQrModalState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [issueNonce, setIssueNonce] = useState(0);
+  // Foto kartu: URL bertanda tangan dari server setelah unggah berhasil.
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   // Roster kartu: server-first (operator/admin), fallback mock DEV. Bundle
   // produksi membuang mock — tanpa roster server, kanvas KTS selalu kosong.
   const roster = serverStudents ?? students;
@@ -280,6 +283,30 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
   const handlePrint = () => {
     window.print();
     onShowToast('Cetak KTS Digital', 'Membuka dialog pencetak browser format ISO CR-80 (85.6mm × 54mm)', 'info');
+  };
+
+  /** Unggah foto siswa: berkas inilah yang ditanam pada kartu PDF server. */
+  const handleUploadPhoto = async (file: File | null) => {
+    if (!file) return;
+
+    if (!serverStudentId) {
+      onShowToast('Foto Belum Bisa Diunggah', 'Pilih siswa terdaftar di server (login operator) terlebih dahulu.', 'warning');
+      return;
+    }
+
+    setUploadingPhoto(true);
+
+    try {
+      const result = await KtsApiService.uploadPhoto(serverStudentId, file);
+      setPhotoUrl(result.photo_url ?? '');
+      // Kanvas & pratinjau langsung memakai foto asli.
+      setSelectedStudent((prev) => (prev ? { ...prev, photo: result.photo_url ?? '' } : prev));
+      onShowToast('Foto Tersimpan', 'Foto siswa tersimpan di server dan dipakai pada kartu PDF.', 'success');
+    } catch {
+      onShowToast('Unggah Foto Gagal', 'Server menolak berkas (format JPG/PNG maks 2 MB).', 'error');
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   /** Server menyimpan VERSI BARU setiap penyimpanan — versi lama tetap utuh. */
@@ -487,6 +514,46 @@ export const KtsModule: React.FC<KtsModuleProps> = ({
                 <span className="text-slate-800">{selectedStudent.birthPlace || selectedStudent.birthDate ? `${selectedStudent.birthPlace}, ${selectedStudent.birthDate}` : '—'}</span>
               </div>
             </div>
+          </div>
+
+          {/* Foto siswa: berkas ini yang ditanam pada kartu PDF server */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-xs space-y-3" data-testid="kts-photo-panel">
+            <span className="text-xs font-semibold text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+              <RefreshCw className="w-4 h-4 text-teal-600" />
+              <span>Foto Siswa (Kartu)</span>
+            </span>
+
+            <label htmlFor="kts-photo-input" className="block text-[11px] font-medium text-slate-600">
+              Pilih berkas foto (JPG/PNG, maks 2 MB)
+            </label>
+
+            <input
+              id="kts-photo-input"
+              type="file"
+              accept="image/jpeg,image/png"
+              disabled={!serverStudentId || uploadingPhoto}
+              onChange={(e) => {
+                void handleUploadPhoto(e.target.files?.[0] ?? null);
+                e.target.value = '';
+              }}
+              className="block w-full text-xs text-slate-600 file:mr-2 file:min-h-11 file:px-3 file:rounded-xl file:border file:border-slate-200 file:bg-slate-50 file:text-xs file:font-semibold disabled:opacity-50"
+              data-testid="input-kts-photo"
+            />
+
+            {photoUrl !== '' ? (
+              <img
+                src={photoUrl}
+                alt={`Foto ${selectedStudent.name}`}
+                className="w-20 h-24 object-cover rounded-xl border border-slate-200"
+                data-testid="kts-photo-preview"
+              />
+            ) : (
+              <p className="text-[11px] text-slate-500">
+                {serverStudentId
+                  ? 'Belum ada foto tersimpan. Format JPG/PNG, maks 2 MB.'
+                  : 'Pilih siswa terdaftar di server (login operator) untuk mengunggah foto.'}
+              </p>
+            )}
           </div>
 
           {/* KTS Template Customizer */}

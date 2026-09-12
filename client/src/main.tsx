@@ -24,6 +24,16 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   })
 }
 
+// PWA: hanya di build produksi (dev tidak perlu cache shell dan akan
+// menyulitkan HMR). Shell read-only — data akademik tidak pernah di-cache.
+if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('/sw.js').catch(() => {
+      /* registrasi gagal (mis. CSP/HTTP non-secure): aplikasi tetap jalan */
+    })
+  })
+}
+
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />

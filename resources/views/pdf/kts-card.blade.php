@@ -41,8 +41,8 @@
         <div class="card-body">
             <div class="col" style="width: 24mm;">
                 <div class="photo">
-                    @if(!empty($student->photo_url))
-                        <img src="{{ $student->photo_url }}" style="width:22mm;height:30mm;">
+                    @if(!empty($student->photo_data_uri))
+                        <img src="{{ $student->photo_data_uri }}" style="width:22mm;height:30mm;">
                     @else
                         <div class="empty-avatar">FOTO</div>
                     @endif

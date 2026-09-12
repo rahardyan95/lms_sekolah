@@ -1,0 +1,56 @@
+---
+title: Quick Start
+description: Install Fida, protect agent reads, and scan secret exposure.
+---
+
+## Install
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ajipurn/fida/main/install.sh | sh
+fida --version
+```
+
+Run in a terminal, the installer offers to set up protection for you. Piped or in CI it stays quiet and just prints `fida` as the next step.
+
+## Protect your agents
+
+```bash
+fida
+```
+
+Bare `fida` detects every supported agent, installs its redacting gateway and steering for each, and runs a synthetic-secret self-test. Run it again later and it checks for an update instead. Protection is global — one install guards every repository.
+
+Toggle individual agents, or script setup non-interactively:
+
+```bash
+fida --yes              # accept the detected agents without prompting
+fida on codex           # protect a single agent
+fida on                 # protect every detected agent
+fida off codex          # remove protection from one agent
+fida off                # remove protection from all agents
+```
+
+## Check coverage
+
+```bash
+fida status
+```
+
+`fida status` also reports how many secrets it has protected in the current repository.
+
+| Level | Meaning |
+| --- | --- |
+| `enforced` | A hard native-read hook is installed and the self-test passed. |
+| `best_effort` | Gateway and steering are installed, but the agent has no hard hook. |
+| `incomplete` | Required artifacts are missing or verification failed. |
+| `inactive` | The agent is detected but has no active Fida integration. |
+
+## Scan repository risk
+
+```bash
+fida scan
+fida scan --json
+fida scan --fail-on high
+```
+
+The scan reports whether a raw secret could reach a detected agent. It never prints a secret value, its length, or any fragment of it.

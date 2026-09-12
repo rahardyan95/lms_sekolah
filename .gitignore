@@ -39,7 +39,7 @@
 /blob-report
 
 # Local reference material (bukan kode produk)
-/skill/
+#/skill/
 
 # Artefak hasil load test (bukan kode produk) — skrip k6 tetap dilacak
 /client/k6/results/

@@ -57,6 +57,8 @@ Route::prefix('v1')->group(function () {
         Route::post('/attendance/manual', [AttendanceController::class, 'manual']);
         Route::get('/attendance/reports', [AttendanceController::class, 'reports']);
         Route::get('/attendance/reports/export', [AttendanceController::class, 'export']);
+        // Ekspor PDF (rekap per siswa) — view resources/views/pdf/attendance-report.blade.php.
+        Route::get('/attendance/reports/pdf', [AttendanceController::class, 'exportPdf']);
 
         // Portal orang tua — scope: hanya anak pada pivot guardian_student.
         Route::get('/parent/children', [ParentController::class, 'children']);
@@ -153,6 +155,12 @@ Route::prefix('v1')->group(function () {
         Route::get('/kts/students/{student}/card', [KtsController::class, 'card']);
         Route::get('/kts/students/{student}/tokens', [KtsController::class, 'tokens']);
         Route::get('/kts/students/{student}/qr.svg', [KtsController::class, 'qr'])->name('kts.qr');
+
+        // Foto siswa untuk kartu: unggah oleh petugas, disajikan lewat signed URL.
+        Route::post('/kts/students/{student}/photo', [KtsController::class, 'uploadPhoto']);
+        Route::get('/kts/students/{student}/photo', [KtsController::class, 'photo'])
+            ->name('kts.photo')
+            ->middleware('signed');
 
         // Broadcast WA + log pengiriman.
         Route::get('/broadcasts', [BroadcastController::class, 'index']);

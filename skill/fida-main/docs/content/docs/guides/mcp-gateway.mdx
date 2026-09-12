@@ -1,0 +1,43 @@
+---
+title: Redacting Gateway
+description: Give agents a safe view of files and command output.
+---
+
+Fida exposes two MCP tools for agent integrations:
+
+- `fida_read` reads a workspace file and redacts detected values before returning it.
+- `fida_shell` captures command output and redacts detected values before returning it.
+
+The gateway's primary job is redaction: the content it returns to the agent always has detected secrets removed. It is not a configurable command-policy firewall, allowlist, or approval prompt — the default decision is allow. It does enforce the built-in [hard-deny safety net](/docs/concepts/security-model#built-in-hard-deny-safety-net): a narrow, high-confidence set of destructive, exfiltration, and SSRF actions is refused before the command runs.
+
+Start it manually when testing an integration:
+
+```bash
+fida mcp serve
+fida mcp serve --workspace /path/to/repo
+fida mcp serve --read-root /path/to/attachments
+```
+
+## Read flow
+
+```text
+MCP fida_read -> read-root boundary -> read file -> redact -> audit -> response
+```
+
+The read-root boundary resolves symlinks and `..` traversal before reading, so an integration cannot accidentally request `/etc/passwd`, `~/.ssh/id_rsa`, or an arbitrary path outside its configured roots. By default the only read root is the workspace. Integrations may add trusted, user-provided attachment directories with repeated `--read-root` flags or the `FIDA_READ_ROOTS` path list.
+
+## Shell flow
+
+```text
+MCP fida_shell -> hard-deny check -> execute -> redact stdout/stderr -> audit -> response
+```
+
+A command that matches the built-in hard-deny set is refused before it runs; everything else executes. The output is captured rather than streamed. If redaction cannot complete, Fida suppresses the affected output instead of returning a partial secret.
+
+The command itself runs with the real environment. A `fida_shell "psql $DATABASE_URL"` connects with the true credential because the child process expands it normally; only the captured output handed back to the model is redacted. The agent can *use* a secret to do its job without the raw value ever entering model context.
+
+## Boundary
+
+The gateway protects only calls routed through it. Fida's managed steering asks agents to use these tools, and supported native-read hooks provide a backstop when a native tool would expose detected secret content.
+
+`fida_read` is confined to the workspace plus any explicitly configured read roots, so it will not read `~/.aws/credentials` or `~/.ssh/id_rsa` unless an integration deliberately adds such a root. Secret content in other out-of-workspace paths is caught only when an agent reaches them through a native tool guarded by a native-read hook — that is, on `enforced` agents (Codex, Claude Code). On `best_effort` agents, protection covers workspace files, configured read roots, and content routed through the gateway, not arbitrary paths outside it. See [Agent Integrations](/docs/guides/agent-integrations) for coverage by client.

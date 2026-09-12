@@ -1,4 +1,5 @@
 import React, { useEffect, useState, Suspense } from 'react';
+import { X } from 'lucide-react';
 import { UserRole, Student, SpmbCandidate, SchoolConfig } from './types';
 import {
   initialSchoolConfig,
@@ -107,6 +108,8 @@ export function App() {
   const [dashboardLoading, setDashboardLoading] = useState<boolean>(false);
   const [activeView, setActiveView] = useState<ActiveModuleView>('cms');
   const [isMobileView, setIsMobileView] = useState<boolean>(false);
+  // Drawer navigasi modul untuk layar < lg (sidebar desktop disembunyikan di sana).
+  const [isNavOpen, setIsNavOpen] = useState<boolean>(false);
   const [isSecurityModalOpen, setIsSecurityModalOpen] = useState<boolean>(false);
   const [auditCount, setAuditCount] = useState<number>(3);
 
@@ -217,10 +220,22 @@ export function App() {
     if (!canAccess(currentRole, view)) {
       showToast('Akses Ditolak', 'Peran Anda tidak memiliki akses ke modul tersebut.', 'error');
       setActiveView(ROLE_HOME[currentRole] ?? 'dashboard');
+      setIsNavOpen(false);
       return;
     }
     setActiveView(view);
+    setIsNavOpen(false);
   };
+
+  // Esc menutup drawer navigasi (kebiasaan keyboard/pembaca layar).
+  useEffect(() => {
+    if (!isNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isNavOpen]);
 
   // URL ↔ modul aktif: deep-link, tahan refresh, dan tombol back/forward browser.
   useEffect(() => {
@@ -468,7 +483,47 @@ export function App() {
             setCurrentRole('public');
             setActiveView('cms');
           }}
+          onOpenNav={() => setIsNavOpen(true)}
         />
+
+      {/* 2b. DRAWER NAVIGASI (< lg): sidebar desktop tersembunyi di layar kecil,
+          tanpa ini staf tidak punya cara berpindah modul di ponsel/tablet. */}
+      {isNavOpen &&
+        currentRole !== 'siswa' &&
+        currentRole !== 'orang_tua' &&
+        currentRole !== 'calon_siswa' && (
+          <div className="fixed inset-0 z-50 lg:hidden" data-testid="mobile-nav-drawer">
+            <button
+              type="button"
+              aria-label="Tutup menu navigasi"
+              onClick={() => setIsNavOpen(false)}
+              className="absolute inset-0 w-full bg-slate-900/40"
+            />
+            <div className="absolute inset-y-0 left-0 w-72 max-w-[85vw] bg-white shadow-2xl flex flex-col">
+              <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+                <span className="text-sm font-bold text-slate-900">Menu Modul</span>
+                <button
+                  type="button"
+                  onClick={() => setIsNavOpen(false)}
+                  className="min-h-11 min-w-11 inline-flex items-center justify-center rounded-xl text-slate-600 hover:bg-slate-100"
+                  aria-label="Tutup menu navigasi"
+                  data-testid="btn-close-nav"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <Sidebar
+                  activeView={activeView}
+                  onSelectView={selectView}
+                  onNavigate={() => setIsNavOpen(false)}
+                  testIdPrefix="nav-drawer-menu"
+                  className="flex w-full min-h-0 border-r-0"
+                />
+              </div>
+            </div>
+          </div>
+        )}
 
       {/* 3. MAIN BODY CONTAINER */}
       <div className="flex-1 flex max-w-7xl w-full mx-auto">

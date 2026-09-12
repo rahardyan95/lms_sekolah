@@ -10,6 +10,7 @@ use App\Services\PdfService;
 use App\Services\QrService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\Response;
 
 class KtsController extends Controller
@@ -54,6 +55,33 @@ class KtsController extends Controller
         $this->authorize('issueKts', KtsToken::class);
 
         return $this->envelope($request, $this->service->activeTemplate());
+    }
+
+    /** Unggah/ganti foto siswa untuk kartu (jpg/png, maks 2 MB). */
+    public function uploadPhoto(Request $request, Student $student): JsonResponse
+    {
+        $this->authorize('issueKts', KtsToken::class);
+
+        $data = $request->validate([
+            'photo' => ['required', 'file', 'max:2048', 'mimes:jpg,jpeg,png'],
+        ]);
+
+        $path = $this->service->storePhoto($student, $data['photo']);
+
+        return $this->envelope($request, [
+            'photo_path' => $path,
+            'photo_url' => $student->refresh()->photo_url,
+        ]);
+    }
+
+    /** Sajikan foto kartu; hanya lewat URL bertanda tangan (route memakai `signed`). */
+    public function photo(Request $request, Student $student): Response
+    {
+        $path = $student->photo_path;
+
+        abort_unless($path && Storage::disk('local')->exists($path), 404, 'Foto tidak ditemukan.');
+
+        return Storage::disk('local')->response($path);
     }
 
     /** Token QR milik satu siswa (audit + pencabutan). */

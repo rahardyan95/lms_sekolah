@@ -9,6 +9,7 @@ import {
   ChevronDown,
   GraduationCap,
   Globe,
+  Menu,
   Settings,
   ExternalLink,
 } from 'lucide-react';
@@ -23,6 +24,8 @@ interface NavbarProps {
   onLogout: () => void;
   onOpenSettings: () => void;
   onOpenPublicSite: () => void;
+  /** Bila diisi, tombol hamburger (khusus < lg) ditampilkan. */
+  onOpenNav?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -35,6 +38,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onLogout,
   onOpenSettings,
   onOpenPublicSite,
+  onOpenNav,
 }) => {
   const [showNotifications, setShowNotifications] = useState(false);
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -67,6 +71,18 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* Right Actions: Public Site, Notifications, Profile */}
         <div className="flex items-center gap-3">
+          {/* Navigasi modul untuk layar < lg (sidebar disembunyikan) */}
+          {onOpenNav && (
+            <button
+              onClick={onOpenNav}
+              className="lg:hidden min-h-11 min-w-11 inline-flex items-center justify-center p-2 rounded-xl text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+              aria-label="Buka menu navigasi"
+              data-testid="btn-open-nav"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+          )}
+
           {/* Public Website Button */}
           {currentRole !== 'public' && (
             <button

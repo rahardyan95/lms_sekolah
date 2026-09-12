@@ -107,6 +107,8 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   const [cashStale, setCashStale] = useState(false);
   const [bankAccounts, setBankAccounts] = useState<ServerBankAccount[] | null>(null);
   const [cashType, setCashType] = useState<'income' | 'expense'>('income');
+  // Kanal dana transaksi kas: '' = kas tunai, selain itu id rekening bank.
+  const [cashBankAccountId, setCashBankAccountId] = useState('');
   const [cashCategory, setCashCategory] = useState('');
   const [cashAmount, setCashAmount] = useState('');
   const [cashDate, setCashDate] = useState(new Date().toISOString().slice(0, 10));
@@ -124,6 +126,12 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
   const [reportTo, setReportTo] = useState(new Date().toISOString().slice(0, 10));
   const [cashReport, setCashReport] = useState<ServerCashReport | null>(null);
   const [loadingReport, setLoadingReport] = useState(false);
+
+  // Penyesuaian tagihan (baris baru bertanda; pembayaran asli tidak diubah).
+  const [adjustTarget, setAdjustTarget] = useState<{ id: string; title: string } | null>(null);
+  const [adjustAmount, setAdjustAmount] = useState('-10000');
+  const [adjustReason, setAdjustReason] = useState('');
+  const [adjusting, setAdjusting] = useState(false);
 
   const refreshServerSummary = async (studentId: string) => {
     const summary = await FinanceApiService.summary(studentId);
@@ -235,11 +243,13 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
         category: cashCategory.trim(),
         amount,
         transaction_at: cashDate,
+        bank_account_id: cashBankAccountId === '' ? null : cashBankAccountId,
       });
       const rows = await FinanceApiService.cash();
       setServerCash(rows);
       setCashCategory('');
       setCashAmount('');
+      setCashBankAccountId('');
       onShowToast('Transaksi Kas Disimpan', 'Mutasi kas tersimpan di server.', 'success');
     } catch {
       onShowToast('Gagal Menyimpan', 'Server menolak transaksi kas. Coba lagi.', 'error');
@@ -283,6 +293,31 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
       onShowToast('Gagal Memuat', 'Laporan kas tidak dapat dimuat dari server.', 'error');
     } finally {
       setLoadingReport(false);
+    }
+  };
+
+  const handleAdjustSubmit = async () => {
+    if (!adjustTarget) return;
+
+    const amount = Number(adjustAmount);
+    if (!Number.isInteger(amount) || amount === 0 || adjustReason.trim() === '') {
+      onShowToast('Data Penyesuaian Tidak Valid', 'Nominal (≠0, boleh negatif) dan alasan wajib diisi.', 'warning');
+      return;
+    }
+
+    setAdjusting(true);
+
+    try {
+      await FinanceApiService.adjustInvoice(adjustTarget.id, amount, adjustReason.trim());
+      onShowToast('Penyesuaian Tersimpan', 'Baris penyesuaian dibuat tanpa mengubah pembayaran asli.', 'success');
+      setAdjustTarget(null);
+      setAdjustAmount('-10000');
+      setAdjustReason('');
+      if (summaryStudent) await refreshServerSummary(summaryStudent.id);
+    } catch {
+      onShowToast('Penyesuaian Gagal', 'Server menolak permintaan penyesuaian.', 'error');
+    } finally {
+      setAdjusting(false);
     }
   };
 
@@ -533,25 +568,74 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 {serverSummary.invoices.map((inv) => {
                   const remaining = inv.amount - inv.paid_amount;
                   return (
-                    <div key={inv.id} className="p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
-                      <div>
-                        <p className="font-bold text-slate-800">{inv.title}</p>
-                        <p className="text-slate-500 font-mono text-[11px]">
-                          {inv.status.toUpperCase()} · {formatRupiah(inv.paid_amount)}/{formatRupiah(inv.amount)}
-                        </p>
+                    <div key={inv.id} className="p-3 space-y-2 text-xs">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-800">{inv.title}</p>
+                          <p className="text-slate-500 font-mono text-[11px]">
+                            {inv.status.toUpperCase()} · {formatRupiah(inv.paid_amount)}/{formatRupiah(inv.amount)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {remaining > 0 ? (
+                            <button
+                              type="button"
+                              disabled={payingId === inv.id}
+                              onClick={() => void handlePayInvoice(inv.id, remaining, inv.title, inv.student_id)}
+                              className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-bold"
+                              data-testid={`btn-pay-${inv.id.slice(0, 8)}`}
+                            >
+                              {payingId === inv.id ? 'Memproses…' : `Bayar ${formatRupiah(remaining)}`}
+                            </button>
+                          ) : (
+                            <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold">LUNAS</span>
+                          )}
+                          {/* Penyesuaian: denda/diskon/koreksi — baris baru, bukan edit baris lama */}
+                          <button
+                            type="button"
+                            onClick={() => setAdjustTarget(adjustTarget?.id === inv.id ? null : { id: inv.id, title: inv.title })}
+                            className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold"
+                            data-testid={`btn-adjust-${inv.id.slice(0, 8)}`}
+                          >
+                            Sesuaikan
+                          </button>
+                        </div>
                       </div>
-                      {remaining > 0 ? (
-                        <button
-                          type="button"
-                          disabled={payingId === inv.id}
-                          onClick={() => void handlePayInvoice(inv.id, remaining, inv.title, inv.student_id)}
-                          className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 disabled:opacity-50 text-white font-bold"
-                          data-testid={`btn-pay-${inv.id.slice(0, 8)}`}
-                        >
-                          {payingId === inv.id ? 'Memproses…' : `Bayar ${formatRupiah(remaining)}`}
-                        </button>
-                      ) : (
-                        <span className="px-2.5 py-1 rounded-lg bg-emerald-100 text-emerald-800 font-bold">LUNAS</span>
+
+                      {adjustTarget?.id === inv.id && (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2" data-testid={`adjust-form-${inv.id.slice(0, 8)}`}>
+                          <p className="text-[11px] text-slate-500">
+                            Nominal boleh negatif (pengurangan) atau positif (denda). Pembayaran asli tidak diubah.
+                          </p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <input
+                              type="number"
+                              value={adjustAmount}
+                              onChange={(e) => setAdjustAmount(e.target.value)}
+                              aria-label="Nominal penyesuaian"
+                              className="w-32 px-3 py-2 rounded-lg border border-slate-200"
+                              data-testid="input-adjust-amount"
+                            />
+                            <input
+                              type="text"
+                              value={adjustReason}
+                              onChange={(e) => setAdjustReason(e.target.value)}
+                              placeholder="Alasan penyesuaian (mis. diskon yatim)"
+                              aria-label="Alasan penyesuaian"
+                              className="flex-1 min-w-[160px] px-3 py-2 rounded-lg border border-slate-200"
+                              data-testid="input-adjust-reason"
+                            />
+                            <button
+                              type="button"
+                              disabled={adjusting}
+                              onClick={() => void handleAdjustSubmit()}
+                              className="min-h-11 px-3 rounded-lg bg-teal-700 hover:bg-teal-800 text-white font-bold disabled:opacity-60"
+                              data-testid="btn-adjust-submit"
+                            >
+                              {adjusting ? 'Menyimpan…' : 'Simpan Penyesuaian'}
+                            </button>
+                          </div>
+                        </div>
                       )}
                     </div>
                   );
@@ -946,6 +1030,23 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 </select>
               </div>
               <div>
+                <label htmlFor="cash-channel-select" className="block text-[11px] font-semibold text-slate-600 mb-1">Kanal Dana</label>
+                <select
+                  id="cash-channel-select"
+                  value={cashBankAccountId}
+                  onChange={(e) => setCashBankAccountId(e.target.value)}
+                  className="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 text-slate-800"
+                  data-testid="input-cash-channel"
+                >
+                  <option value="">Kas Tunai</option>
+                  {(bankAccounts ?? []).map((acc) => (
+                    <option key={acc.id} value={acc.id}>
+                      {acc.bank} {acc.account_masked}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">Kategori</label>
                 <input
                   type="text"
@@ -1090,7 +1191,7 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 {savingBank ? 'Menyimpan…' : 'Simpan Rekening'}
               </button>
             </form>
-            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+            <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden" data-testid="bank-account-list">
               {(bankAccounts ?? []).map((acc) => (
                 <div key={acc.id} className="p-3 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <div>
@@ -1169,6 +1270,39 @@ export const FinanceModule: React.FC<FinanceModuleProps> = ({
                 <span className="text-xs text-teal-700 font-semibold">Saldo Akhir</span>
                 <p className="text-2xl font-black text-teal-900 mt-1">{formatRupiah(cashReport.closing)}</p>
               </div>
+            </div>
+          )}
+
+          {cashReport !== null && (cashReport.by_account?.length ?? 0) > 0 && (
+            <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-x-auto" data-testid="cash-split">
+              <div className="p-4 border-b border-slate-100">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-700">Rincian per Kanal Dana (Kas vs Bank)</h4>
+                <p className="text-[11px] text-slate-500 mt-1">
+                  Pembayaran tunai & kas tanpa rekening masuk kanal Kas Tunai; sisanya melekat pada rekening.
+                </p>
+              </div>
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500 font-semibold">
+                  <tr>
+                    <th className="p-3">Kanal Dana</th>
+                    <th className="p-3 text-right">Pemasukan</th>
+                    <th className="p-3 text-right">Pengeluaran</th>
+                    <th className="p-3 text-right">Saldo Awal</th>
+                    <th className="p-3 text-right">Saldo Akhir</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(cashReport.by_account ?? []).map((row) => (
+                    <tr key={row.id ?? 'kas'} className="border-t border-slate-100">
+                      <td className="p-3 font-semibold text-slate-700">{row.label}</td>
+                      <td className="p-3 text-right text-emerald-800">{formatRupiah(row.income)}</td>
+                      <td className="p-3 text-right text-rose-800">{formatRupiah(row.expense)}</td>
+                      <td className="p-3 text-right text-slate-600">{formatRupiah(row.opening)}</td>
+                      <td className="p-3 text-right font-bold text-slate-900">{formatRupiah(row.closing)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>

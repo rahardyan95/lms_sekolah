@@ -35,9 +35,21 @@ export type ActiveModuleView =
 interface SidebarProps {
   activeView: ActiveModuleView;
   onSelectView: (view: ActiveModuleView) => void;
+  /** Dipanggil setelah modul dipilih — drawer mobile memakainya untuk menutup diri. */
+  onNavigate?: () => void;
+  /** Kelas pembungkus; default kolom desktop (tersembunyi < lg). */
+  className?: string;
+  /** Prefiks data-testid agar instance drawer tidak menabrak id instance desktop. */
+  testIdPrefix?: string;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) => {
+export const Sidebar: React.FC<SidebarProps> = ({
+  activeView,
+  onSelectView,
+  onNavigate,
+  className,
+  testIdPrefix = 'sidebar-menu',
+}) => {
   const menuSections = [
     {
       title: 'AKADEMIK & KEHADIRAN',
@@ -77,8 +89,8 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
 
   return (
     <aside
-      className="w-64 bg-white border-r border-slate-200 p-4 shrink-0 flex flex-col justify-between hidden lg:flex min-h-[calc(100vh-6rem)]"
-      data-testid="admin-sidebar"
+      className={`${className ?? 'hidden lg:flex min-h-[calc(100vh-6rem)]'} w-64 bg-white border-r border-slate-200 p-4 shrink-0 flex flex-col justify-between`}
+      data-testid={testIdPrefix === 'sidebar-menu' ? 'admin-sidebar' : `${testIdPrefix}-panel`}
     >
       <div className="space-y-6">
         {menuSections.map((section, idx) => (
@@ -94,13 +106,16 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeView, onSelectView }) =>
                 return (
                   <button
                     key={item.id}
-                    onClick={() => onSelectView(item.id)}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    onClick={() => {
+                      onSelectView(item.id);
+                      onNavigate?.();
+                    }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 min-h-11 rounded-xl text-xs font-semibold transition-all ${
                       isActive
                         ? 'bg-teal-50 text-teal-800 font-bold border border-teal-200 shadow-xs'
                         : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50'
                     }`}
-                    data-testid={`sidebar-menu-${item.id}`}
+                    data-testid={`${testIdPrefix}-${item.id}`}
                   >
                     <IconComponent
                       className={`w-4 h-4 shrink-0 ${isActive ? 'text-teal-700' : 'text-slate-500'}`}

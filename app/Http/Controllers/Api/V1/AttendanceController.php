@@ -7,12 +7,15 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\ManualAttendanceRequest;
 use App\Http\Requests\ScanAttendanceRequest;
 use App\Models\Attendance;
+use App\Models\ClassRoom;
 use App\Models\Student;
 use App\Services\AttendanceReportService;
 use App\Services\AttendanceService;
+use App\Services\PdfService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Symfony\Component\HttpFoundation\Response;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class AttendanceController extends Controller
@@ -20,6 +23,7 @@ class AttendanceController extends Controller
     public function __construct(
         protected AttendanceService $service,
         protected AttendanceReportService $reportService,
+        protected PdfService $pdf,
     ) {}
 
     public function scan(ScanAttendanceRequest $request): JsonResponse
@@ -73,6 +77,28 @@ class AttendanceController extends Controller
             'meta' => null, 'errors' => null,
             'request_id' => $request->header('X-Request-ID', (string) str()->ulid()),
         ]);
+    }
+
+    /**
+     * Ekspor laporan presensi sebagai PDF (rekap per siswa) — pelengkap CSV.
+     * Authorization & batas rentang identik dengan ekspor CSV.
+     */
+    public function exportPdf(Request $request): Response
+    {
+        $this->authorize('viewReports', Attendance::class);
+
+        $data = $this->validateFilters($request);
+
+        $classRoom = empty($data['class_room_id'])
+            ? null
+            : ClassRoom::whereKey($data['class_room_id'])->value('name');
+
+        return $this->pdf->pdf('pdf.attendance-report', [
+            'from' => $data['from'],
+            'to' => $data['to'],
+            'classRoom' => $classRoom,
+            'rows' => $this->reportService->reportRows($data),
+        ])->download("presensi-{$data['from']}_{$data['to']}.pdf");
     }
 
     /** Ekspor CSV streaming (FRD: export CSV/PDF) — aman dari formula injection. */
